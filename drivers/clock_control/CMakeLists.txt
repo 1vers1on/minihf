@@ -1,2 +1,2 @@
 zephyr_library()
-zephyr_library_sources_ifdef(CONFIG_SI5351A gpio_led.c)
+zephyr_library_sources_ifdef(CONFIG_CLOCK_CONTROL_SI5351A clock_si5351a.c)

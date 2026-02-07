@@ -1,3 +1,3 @@
 if CLOCK_CONTROL
-source "drivers/clock_control/Kconfig.si5351a"
+rsource "Kconfig.si5351a"
 endif # CLOCK_CONTROL

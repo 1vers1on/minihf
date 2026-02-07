@@ -1,6 +1,6 @@
 description: Silicon Labs SI5351A clock generator
 
-compatible: "silabs,si5351"
+compatible: "silabs,si5351a"
 
 include: i2c-device.yaml
 

@@ -53,8 +53,8 @@
 	clock-frequency = <I2C_BITRATE_FAST>;
 	status = "okay";
 
-	si5351: si5351@60 {
-		compatible = "silabs,si5351";
+	si5351a: si5351a@60 {
+		compatible = "silabs,si5351a";
 		reg = <0x60>;
 		clock-frequency = <25000000>;
 	};

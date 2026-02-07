@@ -2,7 +2,7 @@
 #include <zephyr/drivers/i2c.h>
 #include <zephyr/kernel.h>
 
-#define DT_DRV_COMPAT skyworks_si5351a
+#define DT_DRV_COMPAT silabs_si5351a
 
 struct si5351a_config {
     struct i2c_dt_spec i2c;
