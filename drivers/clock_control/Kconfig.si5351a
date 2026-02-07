@@ -1,0 +1,7 @@
+config CLOCK_CONTROL_SI5351
+	bool "Silicon Labs SI5351 clock generator"
+    default y
+    depends on DT_HAS_SKYWORKS_SI5351A_ENABLED
+	depends on I2C
+	help
+	  Driver for SI5351A programmable clock generator

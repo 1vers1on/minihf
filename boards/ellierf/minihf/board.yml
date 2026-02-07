@@ -1,0 +1,6 @@
+board:
+  name: minihf
+  full_name: EllieRF MiniHF
+  vendor: ellierf
+  socs:
+    - name: stm32l431xx

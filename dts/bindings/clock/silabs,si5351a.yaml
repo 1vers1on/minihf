@@ -1,0 +1,15 @@
+description: Silicon Labs SI5351A clock generator
+
+compatible: "silabs,si5351"
+
+include: i2c-device.yaml
+
+properties:
+  reg:
+    required: true
+
+  clock-frequency:
+    type: int
+    required: true
+    description: |
+      Input reference clock frequency in Hz

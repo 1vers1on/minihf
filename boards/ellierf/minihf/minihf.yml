@@ -1,0 +1,14 @@
+identifier: minihf
+name: EllieRF MiniHF
+vendor: ellierf
+type: mcu
+ram: 64
+flash: 128
+supported:
+  - spi
+  - i2c
+  - counter
+  - pwm
+  - nvs
+  - adc
+  - gpio

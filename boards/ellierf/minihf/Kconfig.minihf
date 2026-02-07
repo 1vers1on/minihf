@@ -1,0 +1,2 @@
+config BOARD_MINIHF
+	select SOC_STM32L431XX
