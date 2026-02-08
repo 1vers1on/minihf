@@ -1,1 +1,1 @@
-add_subdirectory_ifdef(CONFIG_CLOCK_CONTROL_SI5351A clock_control)
+add_subdirectory_ifdef(CONFIG_CLOCK_CONTROL clock_control)

@@ -1,2 +1,1 @@
-zephyr_library()
-zephyr_library_sources_ifdef(CONFIG_CLOCK_CONTROL_SI5351A clock_si5351a.c)
+target_sources_ifdef(CONFIG_CLOCK_CONTROL_SI5351A app PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/clock_si5351a.c)

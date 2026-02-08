@@ -88,14 +88,15 @@ static int si5351a_write_reg(const struct device *dev, uint8_t reg, uint8_t valu
 static int si5351a_write_multiple(const struct device *dev, uint8_t start_reg, uint8_t *values, size_t length)
 {
     const struct si5351a_config *cfg = dev->config;
-    uint8_t *buf = k_malloc(length + 1);
+    uint8_t buf[21];
     int ret;
+
+    __ASSERT(length <= sizeof(buf) - 1, "write_multiple: length too large");
 
     buf[0] = start_reg;
     memcpy(&buf[1], values, length);
 
     ret = i2c_write_dt(&cfg->i2c, buf, length + 1);
-    k_free(buf);
     if (ret) {
         return ret;
     }
@@ -184,7 +185,7 @@ void si5351a_set_pll(const struct device *dev, uint8_t target_pll, uint64_t pll_
 
     pll_freq = si5351a_calc_pll(target_pll, pll_freq, cfg->xtal_freq, &reg_set);
 
-    uint8_t *params = k_malloc(20);
+    uint8_t params[20];
     uint8_t i = 0;
     uint8_t temp;
 
@@ -222,7 +223,6 @@ void si5351a_set_pll(const struct device *dev, uint8_t target_pll, uint64_t pll_
     }
 
     ret = si5351a_write_multiple(dev, base_addr, params, i);
-    k_free(params);
 }
 
 static void set_int(const struct device *dev, uint8_t synth, uint8_t enable) {
@@ -270,7 +270,7 @@ static void ms_div(const struct device *dev, uint8_t synth, uint8_t rdiv, uint8_
 }
 
 void si5351a_set_multisynth(const struct device *dev, uint8_t synth, struct si5351a_reg_set reg_set, uint8_t int_mode, uint8_t rdiv, uint8_t div_by_4) {
-    uint8_t *params = k_malloc(20);
+    uint8_t params[20];
 	uint8_t i = 0;
  	uint8_t temp;
  	uint8_t reg_val;
@@ -319,8 +319,6 @@ void si5351a_set_multisynth(const struct device *dev, uint8_t synth, struct si53
             ms_div(dev, 2, rdiv, div_by_4);
             break;
     }
-
-    k_free(params);
 }
 
 uint8_t select_r_div(uint64_t* freq) {
@@ -576,4 +574,3 @@ uint8_t si5351a_set_freq(const struct device *dev, uint8_t output, uint64_t freq
                           NULL);
 
 DT_INST_FOREACH_STATUS_OKAY(SI5351A_INST)
-
