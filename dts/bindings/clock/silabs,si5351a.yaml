@@ -13,3 +13,9 @@ properties:
     required: true
     description: |
       Input reference clock frequency in Hz
+
+  crystal-load-capacitance:
+    type: int
+    required: true
+    description: |
+      Crystal load capacitance in pF.
