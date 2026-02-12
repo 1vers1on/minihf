@@ -4,9 +4,11 @@
 #include <zephyr/drivers/regulator.h>
 #include "drivers/clock_control/clock_si5351a.h"
 #include "config.h"
+#include "uart_handler.h"
 
 const struct device *regulator = DEVICE_DT_GET(DT_NODELABEL(tps55287));
 const struct device *si5351a = DEVICE_DT_GET(DT_NODELABEL(si5351a));
+const struct device *uart_dev = DEVICE_DT_GET(DT_NODELABEL(lpuart1));
 
 static int regulator_init() {
     int tries = 0;
@@ -57,6 +59,8 @@ int main(void) {
     if (regulator_init() < 0) {
         return -1;
     }
+
+    uart_handler_init();
 
     while (1) {
         k_sleep(K_SECONDS(1));

@@ -1,6 +1,0 @@
-#ifndef SRC_CONFIG_H
-#define SRC_CONFIG_H
-#define REGULATOR_TRY_COUNT 5
-#define SI5351A_TRY_COUNT 5
-
-#endif // SRC_CONFIG_H
