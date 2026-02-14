@@ -1,3 +1,10 @@
 .cache
 .vscode
 build
+CMakeFiles
+CMakeCache.txt
+sysbuild_modules.txt
+zephyr_modules.txt
+zephyr_settings.txt
+build_info.yml
+Kconfig/

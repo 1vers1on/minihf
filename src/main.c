@@ -9,6 +9,7 @@
 const struct device *regulator = DEVICE_DT_GET(DT_NODELABEL(tps55287));
 const struct device *si5351a = DEVICE_DT_GET(DT_NODELABEL(si5351a));
 const struct device *uart_dev = DEVICE_DT_GET(DT_NODELABEL(lpuart1));
+const struct device *rtc_dev = DEVICE_DT_GET(DT_NODELABEL(rtc));
 
 static int regulator_init() {
     int tries = 0;
@@ -49,6 +50,21 @@ static int init_si5351a() {
     return 0;
 }
 
+static int init_rtc() {
+    int tries = 0;
+    while (!device_is_ready(rtc_dev)) {
+        printk("Waiting for RTC device to be ready...\n");
+        k_sleep(K_SECONDS(1));
+        tries++;
+        if (tries > RTC_TRY_COUNT) {
+            printk("RTC device not ready after %d seconds, giving up.\n", RTC_TRY_COUNT);
+            return -1;
+        }
+    }
+
+    return 0;
+}
+
 int main(void) {
     printk("hello from my stm32l4 board\n");
 
@@ -57,6 +73,10 @@ int main(void) {
     }
 
     if (regulator_init() < 0) {
+        return -1;
+    }
+
+    if (init_rtc() < 0) {
         return -1;
     }
 

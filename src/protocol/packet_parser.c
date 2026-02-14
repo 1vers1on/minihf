@@ -4,11 +4,16 @@
 #include <zephyr/logging/log.h>
 #include <string.h>
 #include "uart_handler.h"
+#include "radio/radio_cmd.h"
 
 LOG_MODULE_REGISTER(packet_parser);
 
 static const cmd_entry_t cmd_table[] = {
-    // {CMD_ID, handler_function},
+    {0x01, handle_rtc_set_time},
+    {0x02, handle_rtc_get_time},
+    {0x03, handle_set_base_freq},
+    {0x04, handle_get_base_freq},
+    {0xFF, handle_reset},
 };
 
 void parse_dispatch_packet(const uint8_t *data, size_t length) {

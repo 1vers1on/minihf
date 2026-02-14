@@ -6,16 +6,16 @@
 #include <stddef.h>
 
 typedef struct {
-    uint16_t freq_offset_hz;
+    float freq_offset_hz;
     uint32_t duration_us;
     bool     tx_on;
 } tx_symbol_t;
 
 typedef struct {
-    const char* mode_name;
+    char* mode_name;
     uint32_t base_freq_hz;
     
-    const tx_symbol_t* symbols; 
+    tx_symbol_t* symbols; 
     size_t total_symbols;
     
     // Runtime state

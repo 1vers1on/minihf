@@ -524,9 +524,8 @@ static int si5351a_init(const struct device *dev)
 
 uint8_t si5351a_set_freq(const struct device *dev, uint8_t output, uint64_t freq) {
     struct si5351a_data *data = dev->data;
-    const struct si5351a_config *cfg = dev->config;
     struct si5351a_reg_set reg_set;
-	uint64_t pll_freq;
+	// uint64_t pll_freq;
 	uint8_t int_mode = 0;
 	uint8_t div_by_4 = 0;
 	uint8_t r_div = 0;

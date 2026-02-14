@@ -83,13 +83,12 @@ void generate_cw_sequence(const char* text, uint32_t wpm, tx_sequence_t* tx_sequ
 
         if (c == ' ') {
             if (sym_idx > 0 && !sym_array[sym_idx - 1].tx_on) {
-
                 sym_array[sym_idx - 1].duration_us += (6 * dot_us);
             }
             continue;
         }
 
-        const char* code = (c < 128) ? MORSE_TABLE[c] : NULL;
+        const char* code = (c < 128) ? MORSE_TABLE[(int)c] : NULL;
 
         if (code) {
             if (sym_idx > 0 && !sym_array[sym_idx - 1].tx_on) {
