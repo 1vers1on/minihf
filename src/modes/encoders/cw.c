@@ -1,4 +1,4 @@
-#include "modes/cw.h"
+#include "modes/encoders/cw.h"
 #include "radio_core.h"
 
 #include <ctype.h>

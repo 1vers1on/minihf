@@ -1,4 +1,4 @@
-#include "modes/rtty.h"
+#include "modes/encoders/rtty.h"
 #include "radio_core.h"
 
 #include <stdint.h>

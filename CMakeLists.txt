@@ -2,8 +2,9 @@ cmake_minimum_required(VERSION 3.20.0)
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(minihf)
 target_sources(app PRIVATE src/main.c
-                           src/modes/cw.c
-                           src/modes/rtty.c
+                           src/modes/encoders/cw.c
+                           src/modes/encoders/rtty.c
+                           src/modes/ftx.c
                            src/protocol/cobs.c
                            src/protocol/packet_parser.c
                            src/uart_handler.c
