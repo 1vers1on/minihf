@@ -1,4 +1,5 @@
 # keep first
+board_runner_args(openocd "--config" "interface/stlink.cfg" "--config" "target/stm32l4x.cfg")
 board_runner_args(stm32cubeprogrammer "--port=swd" "--reset-mode=hw")
 board_runner_args(jlink "--device=STM32L431CB" "--speed=4000")
 

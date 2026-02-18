@@ -1,5 +1,5 @@
-#ifndef MODES_RTTY_H
-#define MODES_RTTY_H
+#ifndef MODES_ENCODERS_RTTY_H
+#define MODES_ENCODERS_RTTY_H
 
 #include <stdint.h>
 #include "radio_core.h"
@@ -13,4 +13,4 @@ typedef struct {
 } rtty_config_t;
 
 int generate_rtty_sequence(const char* text, const rtty_config_t* config, tx_sequence_t* tx_sequence);
-#endif // MODES_RTTY_H
+#endif // MODES_ENCODERS_RTTY_H

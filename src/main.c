@@ -5,11 +5,23 @@
 #include "drivers/clock_control/clock_si5351a.h"
 #include "config.h"
 #include "uart_handler.h"
+#include <zephyr/drivers/gpio.h>
+
 
 const struct device *regulator = DEVICE_DT_GET(DT_NODELABEL(tps55287));
 const struct device *si5351a = DEVICE_DT_GET(DT_NODELABEL(si5351a));
 const struct device *uart_dev = DEVICE_DT_GET(DT_NODELABEL(lpuart1));
 const struct device *rtc_dev = DEVICE_DT_GET(DT_NODELABEL(rtc));
+
+#define LED1_NODE DT_NODELABEL(led1)
+#define LED2_NODE DT_NODELABEL(led2)
+#define LED3_NODE DT_NODELABEL(led3)
+#define LED4_NODE DT_NODELABEL(led4)
+
+static const struct gpio_dt_spec led1 = GPIO_DT_SPEC_GET(LED1_NODE, gpios);
+static const struct gpio_dt_spec led2 = GPIO_DT_SPEC_GET(LED2_NODE, gpios);
+static const struct gpio_dt_spec led3 = GPIO_DT_SPEC_GET(LED3_NODE, gpios);
+static const struct gpio_dt_spec led4 = GPIO_DT_SPEC_GET(LED4_NODE, gpios);
 
 static int regulator_init() {
     int tries = 0;
@@ -66,15 +78,17 @@ static int init_rtc() {
 }
 
 int main(void) {
-    printk("hello from my stm32l4 board\n");
+    k_busy_wait(2000000);
 
-    if (init_si5351a() < 0) {
-        return -1;
-    }
+    printk("hello\n");
 
-    if (regulator_init() < 0) {
-        return -1;
-    }
+    // if (init_si5351a() < 0) {
+    //     return -1;
+    // }
+
+    // if (regulator_init() < 0) {
+    //     return -1;
+    // }
 
     if (init_rtc() < 0) {
         return -1;
@@ -82,9 +96,22 @@ int main(void) {
 
     uart_handler_init();
 
+    gpio_pin_configure_dt(&led1, GPIO_OUTPUT_INACTIVE);
+    gpio_pin_configure_dt(&led2, GPIO_OUTPUT_INACTIVE);
+    gpio_pin_configure_dt(&led3, GPIO_OUTPUT_INACTIVE);
+    gpio_pin_configure_dt(&led4, GPIO_OUTPUT_INACTIVE);
+
+    gpio_pin_set_dt(&led1, 0);
+    gpio_pin_set_dt(&led2, 0);
+    gpio_pin_set_dt(&led3, 0);
+    gpio_pin_set_dt(&led4, 0);
+
     while (1) {
+        gpio_pin_toggle_dt(&led1);
+        gpio_pin_toggle_dt(&led2);
+        gpio_pin_toggle_dt(&led3);
+        gpio_pin_toggle_dt(&led4);
         k_sleep(K_SECONDS(1));
-        printk("still alive\n");
     }
 
     return 0;

@@ -86,6 +86,7 @@ static void push_baudot(uint8_t baudot_code, tx_symbol_t* symbols, size_t* index
 
 int generate_rtty_sequence(const char* text, const rtty_config_t* config, 
                             tx_sequence_t* tx_sequence) {
+    tx_sequence->mode_name = "RTTY";
     if (!text || !config || !tx_sequence) {
         return -1;
     }
