@@ -100,10 +100,18 @@
 		status = "okay";
 	};
 
-	tps55287: tps55287@75 {
-		compatible = "ti,tps55287";
+	tps55289: tps55289@75 {
+		compatible = "ti,tps55289";
 		reg = <0x75>;
 		status = "okay";
+
+		ti,external-feedback;
+        ti,feedback-resistors-ohms = <274000 100000>;
+        ti,rsense-mohm = <0>;
+
+		regulator-name = "V_PA";
+        regulator-min-microvolt = <5000000>;
+        regulator-max-microvolt = <18000000>;
 	};
 };
 

@@ -1,4 +1,5 @@
 #include "protocol/packet_parser.h"
+#include "protocol/cobs.h"
 #include <zephyr/sys/crc.h>
 #include <zephyr/sys/byteorder.h>
 #include <zephyr/logging/log.h>
@@ -13,7 +14,7 @@ static const cmd_entry_t cmd_table[] = {
     {0x02, handle_rtc_get_time},
     {0x03, handle_set_base_freq},
     {0x04, handle_get_base_freq},
-    {0xFF, handle_reset},
+    {0xFD, handle_reset},
 };
 
 void parse_dispatch_packet(const uint8_t *data, size_t length) {
@@ -62,11 +63,18 @@ void send_packet(uint8_t cmd_id, const uint8_t *payload, size_t payload_len, uin
     pkt->type = cmd_id;
     pkt->id = id;
     pkt->length = payload_len;
-    memcpy(pkt->payload_and_crc, payload, payload_len);
+    if (payload != NULL && payload_len > 0) {
+        memcpy(pkt->payload_and_crc, payload, payload_len);
+    }
 
     size_t pkt_size = sizeof(packet_t) + payload_len;
     uint16_t crc = crc16_ccitt(0x0000, buf, pkt_size);
     sys_put_le16(crc, &pkt->payload_and_crc[payload_len]);
 
-    send_uart_data(buf, pkt_size + 2);
+    size_t raw_len = pkt_size + 2;
+    uint8_t cobs_buf[raw_len + 2 + 1]; /* COBS overhead + delimiter */
+    size_t cobs_len = cobs_encode(buf, raw_len, cobs_buf);
+    cobs_buf[cobs_len] = 0x00; /* frame delimiter */
+
+    send_uart_data(cobs_buf, cobs_len + 1);
 }

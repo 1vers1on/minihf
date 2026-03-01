@@ -1,0 +1,14 @@
+config REGULATOR_TPS55289
+    bool "TI TPS55289 Regulator Driver"
+    default y
+    depends on DT_HAS_TI_TPS55289_ENABLED
+    select I2C
+    help
+      Enable support for TI TPS55289 I2C buck-boost converter.
+
+config REGULATOR_TPS55289_INIT_PRIORITY
+    int "TPS55289 regulator driver init priority"
+    default 75
+    depends on REGULATOR_TPS55289
+    help
+      Init priority for the TPS55289 regulator driver.

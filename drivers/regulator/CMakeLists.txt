@@ -1,0 +1,1 @@
+target_sources_ifdef(CONFIG_REGULATOR_TPS55289 app PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/regulator_tps55289.c)

@@ -1,0 +1,42 @@
+description: TI TPS55289 I2C Adjustable Buck-Boost Converter
+
+compatible: "ti,tps55289"
+
+include: ["regulator.yaml", "i2c-device.yaml"]
+
+properties:
+  ti,external-feedback:
+    type: boolean
+    description: |
+      Set to use the FB/INT pin for external resistor feedback.
+      If false, the chip uses internal resistors.
+
+  ti,feedback-resistors-ohms:
+    type: array
+    description: |
+      Values of the external divider [R_top, R_bottom] in Ohms.
+      Vout = Vref * (1 + R_top / R_bottom). Required if ti,external-feedback is true.
+
+  ti,internal-fb-ratio:
+    type: int
+    enum: [0, 1, 2, 3]
+    default: 3
+    description: |
+      Internal ratio if not using external feedback.
+      0: 0.2256, 1: 0.1128, 2: 0.0752, 3: 0.0564 (Default)
+
+  ti,rsense-mohm:
+    type: int
+    default: 0
+    description: |
+      Value of the sense resistor in milliohms. 
+      If 0, current limiting functions will return -ENOTSUP.
+
+  ti,slew-rate-mv-us:
+    type: int
+    enum: [1250, 2500, 5000, 10000]
+    default: 2500
+
+  ti,discharge-enable:
+    type: boolean
+    description: Enable 100mA internal discharge during shutdown.

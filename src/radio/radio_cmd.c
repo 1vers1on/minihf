@@ -21,6 +21,7 @@ void handle_rtc_set_time(const uint8_t *payload, uint8_t length, uint16_t id) {
     cursor_init(&cursor, payload, length);
 
     if (cursor.remaining < 7) {
+        send_nack(id);
         return;
     }
 
@@ -99,7 +100,7 @@ void handle_get_base_freq(const uint8_t *payload, uint8_t length, uint16_t id) {
         send_nack(id);
     } else {
         size_t payload_len = writer.ptr - buffer;
-        send_packet(0x03, buffer, payload_len, id);
+        send_packet(0x04, buffer, payload_len, id);
     }
 }
 

@@ -4,11 +4,12 @@
 #include <zephyr/drivers/regulator.h>
 #include "drivers/clock_control/clock_si5351a.h"
 #include "config.h"
+#include "stm32l431xx.h"
 #include "uart_handler.h"
 #include <zephyr/drivers/gpio.h>
+#include <stm32l4xx.h>
 
-
-const struct device *regulator = DEVICE_DT_GET(DT_NODELABEL(tps55287));
+const struct device *regulator = DEVICE_DT_GET(DT_NODELABEL(tps55289));
 const struct device *si5351a = DEVICE_DT_GET(DT_NODELABEL(si5351a));
 const struct device *uart_dev = DEVICE_DT_GET(DT_NODELABEL(lpuart1));
 const struct device *rtc_dev = DEVICE_DT_GET(DT_NODELABEL(rtc));
@@ -34,7 +35,7 @@ static int regulator_init() {
             return -1;
         }
     }
-    regulator_enable(regulator);
+    regulator_disable(regulator);
 
     return 0;
 }
@@ -77,8 +78,17 @@ static int init_rtc() {
     return 0;
 }
 
+void enable_debug_in_pm() {
+    DBGMCU->CR |= DBGMCU_CR_DBG_SLEEP | DBGMCU_CR_DBG_STOP | DBGMCU_CR_DBG_STANDBY;
+    DBGMCU->APB1FZR1 |= DBGMCU_APB1FZR1_DBG_IWDG_STOP 
+                     | DBGMCU_APB1FZR1_DBG_WWDG_STOP 
+                     | DBGMCU_APB1FZR1_DBG_RTC_STOP;
+}
+
 int main(void) {
     k_busy_wait(2000000);
+
+    enable_debug_in_pm();
 
     printk("hello\n");
 
@@ -86,9 +96,9 @@ int main(void) {
     //     return -1;
     // }
 
-    // if (regulator_init() < 0) {
-    //     return -1;
-    // }
+    if (regulator_init() < 0) {
+        printk("Failed to initialize regulator, continuing without it.\n");
+    }
 
     if (init_rtc() < 0) {
         return -1;
