@@ -105,4 +105,4 @@ flake.lock
 
 Cargo.lock
 
-# Before adding new lines, see the comment at the top.
+bindings/
