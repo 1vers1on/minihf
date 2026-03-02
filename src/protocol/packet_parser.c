@@ -14,6 +14,9 @@ static const cmd_entry_t cmd_table[] = {
     {0x02, handle_rtc_get_time},
     {0x03, handle_set_base_freq},
     {0x04, handle_get_base_freq},
+    {0x05, handle_set_buck_regulator},
+    {0x06, handle_get_buck_regulator},
+    {0x07, handle_tx_test_signal},
     {0xFD, handle_reset},
 };
 

@@ -5,6 +5,7 @@
 #include "drivers/clock_control/clock_si5351a.h"
 #include "config.h"
 #include "stm32l431xx.h"
+#include "radio/tx_engine.h"
 #include "uart_handler.h"
 #include <zephyr/drivers/gpio.h>
 #include <stm32l4xx.h>
@@ -35,6 +36,7 @@ static int regulator_init() {
             return -1;
         }
     }
+    regulator_set_voltage(regulator, 1200000, 1200000);
     regulator_disable(regulator);
 
     return 0;
@@ -92,9 +94,9 @@ int main(void) {
 
     printk("hello\n");
 
-    // if (init_si5351a() < 0) {
-    //     return -1;
-    // }
+    if (init_si5351a() < 0) {
+        return -1;
+    }
 
     if (regulator_init() < 0) {
         printk("Failed to initialize regulator, continuing without it.\n");
@@ -105,6 +107,7 @@ int main(void) {
     }
 
     uart_handler_init();
+    tx_engine_init();
 
     gpio_pin_configure_dt(&led1, GPIO_OUTPUT_INACTIVE);
     gpio_pin_configure_dt(&led2, GPIO_OUTPUT_INACTIVE);

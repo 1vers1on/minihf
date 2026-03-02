@@ -1,5 +1,5 @@
 use std::time::{Duration, Instant};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::io::{Read, Write};
 use serialport::SerialPort;
 use std::sync::atomic::{AtomicU16, Ordering};
@@ -13,6 +13,32 @@ const HEADER_BYTE: u8 = 0xAA;
 const HEADER_SIZE: usize = 5;
 
 uniffi::include_scaffolding!("minihf_api");
+
+#[uniffi::export(callback_interface)]
+pub trait DebugLogger: Send + Sync {
+    fn log(&self, message: String);
+}
+
+static LOGGER: OnceLock<Mutex<Option<Box<dyn DebugLogger>>>> = OnceLock::new();
+
+fn logger_cell() -> &'static Mutex<Option<Box<dyn DebugLogger>>> {
+    LOGGER.get_or_init(|| Mutex::new(None))
+}
+
+fn debug_log(msg: &str) {
+    if let Ok(guard) = logger_cell().lock() {
+        if let Some(ref logger) = *guard {
+            logger.log(msg.to_string());
+        }
+    }
+}
+
+#[uniffi::export]
+pub fn set_debug_logger(logger: Option<Box<dyn DebugLogger>>) {
+    if let Ok(mut guard) = logger_cell().lock() {
+        *guard = logger;
+    }
+}
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum MiniHFError {
@@ -156,6 +182,12 @@ pub struct RtcTime {
     pub second: u8,
 }
 
+#[derive(uniffi::Record)]
+pub struct BuckRegulatorState {
+    pub enabled: bool,
+    pub voltage_level: u8,
+}
+
 #[derive(uniffi::Object)]
 pub struct MiniHF {
     port: Arc<Mutex<Option<Box<dyn Transport>>>>,
@@ -173,10 +205,12 @@ impl MiniHF {
 
     #[uniffi::constructor]
     pub fn new_with_timeout(path: String, baud: u32, timeout_ms: u64) -> Result<Arc<Self>, MiniHFError> {
+        debug_log(&format!("opening serial port {} @ {} baud (timeout {}ms)", path, baud, timeout_ms));
         let port = serialport::new(path, baud)
             .timeout(Duration::from_millis(timeout_ms))
             .open()
             .map_err(|e| MiniHFError::Io(e.to_string()))?;
+        debug_log("serial port opened successfully");
 
         Ok(Arc::new(Self {
             port: Arc::new(Mutex::new(Some(Box::new(SerialTransport(port))))),
@@ -196,6 +230,7 @@ impl MiniHF {
 
         #[cfg(unix)]
         {
+            debug_log(&format!("opening fd {} (timeout {}ms)", fd, timeout_ms));
             let transport = FdTransport::new(fd, Duration::from_millis(timeout_ms));
             Ok(Arc::new(Self {
                 port: Arc::new(Mutex::new(Some(Box::new(transport)))),
@@ -254,12 +289,47 @@ impl MiniHF {
         Ok(freq_int as f64 / 100.0)
     }
 
+    pub fn set_buck_regulator(&self, enabled: bool, voltage_level: u8) -> Result<(), MiniHFError> {
+        if voltage_level > 18 {
+            return Err(MiniHFError::InvalidArgument(
+                format!("voltage_level must be 0–18, got {}", voltage_level),
+            ));
+        }
+        let state = if enabled { 0x80 } else { 0x00 } | (voltage_level & 0x1F);
+        self.transact(0x05, vec![state])?;
+        Ok(())
+    }
+
+    pub fn get_buck_regulator(&self) -> Result<BuckRegulatorState, MiniHFError> {
+        let resp = self.transact(0x06, vec![])?;
+        if resp.is_empty() {
+            return Err(MiniHFError::InvalidPacket);
+        }
+        let state = resp[0];
+        Ok(BuckRegulatorState {
+            enabled: (state & 0x80) != 0,
+            voltage_level: state & 0x1F,
+        })
+    }
+
+    pub fn tx_test_signal(&self, duration_ms: u32) -> Result<(), MiniHFError> {
+        if duration_ms == 0 {
+            return Err(MiniHFError::InvalidArgument(
+                "duration_ms must be greater than 0".to_string(),
+            ));
+        }
+        let payload = duration_ms.to_le_bytes().to_vec();
+        self.transact(0x07, payload)?;
+        Ok(())
+    }
+
     pub fn reset(&self) -> Result<(), MiniHFError> {
         self.send_only(0xFD, vec![])?;
         Ok(())
     }
 
     pub fn close(&self) -> Result<(), MiniHFError> {
+        debug_log("closing connection");
         let mut port_opt = self.port.lock().unwrap();
         if let Some(ref mut port) = *port_opt {
             let _ = port.flush();
@@ -279,6 +349,7 @@ impl MiniHF {
             ));
         }
         let current_id = self.next_id.fetch_add(1, Ordering::SeqCst);
+        debug_log(&format!("TX cmd=0x{:02X} id={} len={} (fire-and-forget)", cmd_id, current_id, payload.len()));
         let frame = frame_packet(cmd_id, current_id, &payload);
         let mut port_opt = self.port.lock().unwrap();
         let port = port_opt.as_mut().ok_or(MiniHFError::PortClosed)?;
@@ -293,6 +364,7 @@ impl MiniHF {
             ));
         }
         let current_id = self.next_id.fetch_add(1, Ordering::SeqCst);
+        debug_log(&format!("TX cmd=0x{:02X} id={} len={}", cmd_id, current_id, payload.len()));
         let frame = frame_packet(cmd_id, current_id, &payload);
 
         let mut port_opt = self.port.lock().unwrap();
@@ -311,11 +383,14 @@ impl MiniHF {
 
             port.set_timeout(remaining)?;
 
-            let to_read = port.bytes_available()? ;
+            let to_read = port.bytes_available()?;
             let mut tmp = vec![0u8; to_read.max(1)];
 
             match port.read(&mut tmp) {
-                Ok(n) => rx_buf.extend_from_slice(&tmp[..n]),
+                Ok(n) => {
+                    debug_log(&format!("RX {} bytes", n));
+                    rx_buf.extend_from_slice(&tmp[..n]);
+                }
                 Err(ref e) if e.kind() == std::io::ErrorKind::TimedOut => continue,
                 Err(e) => return Err(MiniHFError::Io(e.to_string())),
             }
@@ -330,16 +405,22 @@ impl MiniHF {
 
                 let decoded = match decode_vec(frame_bytes) {
                     Ok(d) => d,
-                    Err(_) => continue,
+                    Err(_) => {
+                        debug_log("RX frame COBS decode failed, skipping");
+                        continue;
+                    }
                 };
 
                 if let Some(pkt) = parse_packet(&decoded) {
                     if pkt.id != current_id {
+                        debug_log(&format!("RX ignoring pkt id={} (expected {})", pkt.id, current_id));
                         continue;
                     }
                     if pkt.ptype == RESP_NACK {
+                        debug_log(&format!("RX NACK for id={}", current_id));
                         return Err(MiniHFError::Nack);
                     }
+                    debug_log(&format!("RX ACK cmd=0x{:02X} id={} payload_len={}", pkt.ptype, pkt.id, pkt.payload.len()));
                     return Ok(pkt.payload);
                 }
             }

@@ -9,7 +9,8 @@ target_sources(app PRIVATE src/main.c
                            src/protocol/packet_parser.c
                            src/uart_handler.c
                            src/radio/radio_cmd.c
-                           src/radio/radio.c)
+                           src/radio/radio.c
+                           src/radio/tx_engine.c)
 target_include_directories(app PRIVATE ${CMAKE_SOURCE_DIR})
 target_include_directories(app PRIVATE include)
 add_subdirectory(drivers)
