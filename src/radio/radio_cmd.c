@@ -82,7 +82,7 @@ void handle_set_base_freq(const uint8_t *payload, uint8_t length, uint16_t id) {
     }
 
     uint64_t freq = cursor_get_u64(&cursor);
-    base_frequency = freq;
+    base_frequency = clamp_frequency(freq);
 
     if (cursor.error) {
         send_nack(id);
@@ -106,7 +106,7 @@ void handle_get_base_freq(const uint8_t *payload, uint8_t length, uint16_t id) {
     }
 }
 
-void handle_set_buck_regulator(const uint8_t *payload, uint8_t length, uint16_t id) {
+void handle_set_buck_boost_regulator(const uint8_t *payload, uint8_t length, uint16_t id) {
     payload_cursor_t cursor;
     cursor_init(&cursor, payload, length);
 
@@ -116,19 +116,21 @@ void handle_set_buck_regulator(const uint8_t *payload, uint8_t length, uint16_t 
     }
 
     uint8_t state = cursor_get_u8(&cursor);
-    bool buck_regulator_enabled = (state & 0x80) != 0;
+    bool buck_boost_regulator_enabled = (state & 0x80) != 0;
     uint8_t voltage_level = state & 0x1F;
 
     regulator_set_voltage(regulator, voltage_level * 1000000, voltage_level * 1000000);
 
-    if (buck_regulator_enabled) {
+    if (buck_boost_regulator_enabled) {
         regulator_enable(regulator);
     } else {
         regulator_disable(regulator);
     }
+
+    send_ack(id);
 }
 
-void handle_get_buck_regulator(const uint8_t *payload, uint8_t length, uint16_t id) {
+void handle_get_buck_boost_regulator(const uint8_t *payload, uint8_t length, uint16_t id) {
     uint8_t buffer[1];
     payload_writer_t writer;
     writer_init(&writer, buffer, sizeof(buffer));
@@ -141,9 +143,9 @@ void handle_get_buck_regulator(const uint8_t *payload, uint8_t length, uint16_t 
     }
 
     uint8_t voltage_level = volt_uv / 1000000;
-    bool buck_regulator_enabled = regulator_is_enabled(regulator);
+    bool buck_boost_regulator_enabled = regulator_is_enabled(regulator);
 
-    uint8_t state = (buck_regulator_enabled ? 0x80 : 0x00) | (voltage_level & 0x1F);
+    uint8_t state = (buck_boost_regulator_enabled ? 0x80 : 0x00) | (voltage_level & 0x1F);
     writer_put_u8(&writer, state);
 
     if (writer.error) {
@@ -182,8 +184,10 @@ void handle_tx_test_signal(const uint8_t *payload, uint8_t length, uint16_t id) 
     test_signal_symbol.duration_us = duration_ms * 1000U;
     test_signal_symbol.tx_on = true;
 
+    uint64_t clamped = clamp_frequency(base_frequency);
+
     test_signal_seq.mode_name = "test";
-    test_signal_seq.base_freq_hz = (uint32_t)(base_frequency / 100U);
+    test_signal_seq.base_freq_hz = (uint32_t)(clamped / 100U);
     test_signal_seq.symbols = &test_signal_symbol;
     test_signal_seq.total_symbols = 1;
     test_signal_seq.current_index = 0;

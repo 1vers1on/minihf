@@ -40,7 +40,7 @@ void tx_engine_start(tx_sequence_t *seq) {
     active_seq->current_index = 0;
     engine_active = true;
 
-    printk("tx_engine: started, base_freq=%llu Hz, %u symbols, repeat=%d\n",
+    printk("tx_engine: started, base_freq=%u Hz, %u symbols, repeat=%d\n",
            seq->base_freq_hz, seq->total_symbols, seq->repeat);
 
     const tx_symbol_t *sym = &active_seq->symbols[0];

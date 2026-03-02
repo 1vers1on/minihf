@@ -12,6 +12,13 @@ const RESP_NACK: u8 = 0xFE;
 const HEADER_BYTE: u8 = 0xAA;
 const HEADER_SIZE: usize = 5;
 
+const BAND_30M_MIN_HZ: f64 = 10_100_000.0;
+const BAND_30M_MAX_HZ: f64 = 10_150_000.0;
+
+fn clamp_freq_hz(freq: f64) -> f64 {
+    freq.clamp(BAND_30M_MIN_HZ, BAND_30M_MAX_HZ)
+}
+
 uniffi::include_scaffolding!("minihf_api");
 
 #[uniffi::export(callback_interface)]
@@ -273,7 +280,8 @@ impl MiniHF {
                 format!("frequency must be a finite non-negative number, got {}", freq_hz),
             ));
         }
-        let freq_int = (freq_hz * 100.0).round() as u64;
+        let clamped = clamp_freq_hz(freq_hz);
+        let freq_int = (clamped * 100.0).round() as u64;
         let payload = freq_int.to_le_bytes().to_vec();
         self.transact(0x03, payload)?;
         Ok(())
@@ -289,7 +297,7 @@ impl MiniHF {
         Ok(freq_int as f64 / 100.0)
     }
 
-    pub fn set_buck_regulator(&self, enabled: bool, voltage_level: u8) -> Result<(), MiniHFError> {
+    pub fn set_buck_boost_regulator(&self, enabled: bool, voltage_level: u8) -> Result<(), MiniHFError> {
         if voltage_level > 18 {
             return Err(MiniHFError::InvalidArgument(
                 format!("voltage_level must be 0–18, got {}", voltage_level),
@@ -300,7 +308,7 @@ impl MiniHF {
         Ok(())
     }
 
-    pub fn get_buck_regulator(&self) -> Result<BuckRegulatorState, MiniHFError> {
+    pub fn get_buck_boost_regulator(&self) -> Result<BuckRegulatorState, MiniHFError> {
         let resp = self.transact(0x06, vec![])?;
         if resp.is_empty() {
             return Err(MiniHFError::InvalidPacket);
