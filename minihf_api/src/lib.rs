@@ -9,6 +9,7 @@ use crc::{Crc, CRC_16_KERMIT};
 
 const RESP_ACK: u8 = 0xFF;
 const RESP_NACK: u8 = 0xFE;
+const DEBUG_MSG_CMD: u8 = 0xFC;
 const HEADER_BYTE: u8 = 0xAA;
 const HEADER_SIZE: usize = 5;
 
@@ -336,6 +337,54 @@ impl MiniHF {
         Ok(())
     }
 
+    pub fn poll_debug(&self, duration_ms: u64) -> Result<(), MiniHFError> {
+        let deadline = Instant::now() + Duration::from_millis(duration_ms);
+        let mut port_opt = self.port.lock().unwrap();
+        let port = port_opt.as_mut().ok_or(MiniHFError::PortClosed)?;
+        let mut rx_buf = self.rx_buf.lock().unwrap();
+
+        loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return Ok(());
+            }
+
+            port.set_timeout(remaining)?;
+
+            let to_read = port.bytes_available().unwrap_or(0);
+            let mut tmp = vec![0u8; to_read.max(1)];
+
+            match port.read(&mut tmp) {
+                Ok(n) => {
+                    rx_buf.extend_from_slice(&tmp[..n]);
+                }
+                Err(ref e) if e.kind() == std::io::ErrorKind::TimedOut => continue,
+                Err(e) => return Err(MiniHFError::Io(e.to_string())),
+            }
+
+            while let Some(idx) = rx_buf.iter().position(|&b| b == 0x00) {
+                let frame_data: Vec<u8> = rx_buf.drain(..=idx).collect();
+                let frame_bytes = &frame_data[..frame_data.len() - 1];
+
+                if frame_bytes.is_empty() {
+                    continue;
+                }
+
+                let decoded = match decode_vec(frame_bytes) {
+                    Ok(d) => d,
+                    Err(_) => continue,
+                };
+
+                if let Some(pkt) = parse_packet(&decoded) {
+                    if pkt.ptype == DEBUG_MSG_CMD {
+                        let msg = String::from_utf8_lossy(&pkt.payload);
+                        debug_log(&format!("[device] {}", msg));
+                    }
+                }
+            }
+        }
+    }
+
     pub fn close(&self) -> Result<(), MiniHFError> {
         debug_log("closing connection");
         let mut port_opt = self.port.lock().unwrap();
@@ -420,6 +469,11 @@ impl MiniHF {
                 };
 
                 if let Some(pkt) = parse_packet(&decoded) {
+                    if pkt.ptype == DEBUG_MSG_CMD {
+                        let msg = String::from_utf8_lossy(&pkt.payload);
+                        debug_log(&format!("[device] {}", msg));
+                        continue;
+                    }
                     if pkt.id != current_id {
                         debug_log(&format!("RX ignoring pkt id={} (expected {})", pkt.id, current_id));
                         continue;

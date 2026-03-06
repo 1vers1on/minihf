@@ -9,6 +9,18 @@
 
 #include <zephyr/sys/reboot.h>
 #include <zephyr/drivers/rtc.h>
+#include <string.h>
+
+void send_debug_message(const char *message) {
+    if (message == NULL) {
+        return;
+    }
+    size_t len = strlen(message);
+    if (len > 255) {
+        len = 255;
+    }
+    send_packet(0xFC, (const uint8_t *)message, len, 0);
+}
 
 void send_ack(uint16_t id) {
     send_packet(0xFF, NULL, 0, id);

@@ -59,9 +59,40 @@
 #define SI5351_PLL_RESET_B              (1<<7)
 #define SI5351_PLL_RESET_A              (1<<5)
 
+#define SI5351_DEVICE_STATUS             0
+#define SI5351_INTERRUPT_STATUS          1
+
+#define SI5351_PLL_INPUT_SOURCE          15
+
 #define SI5351_CLK0_PHASE_OFFSET        165
 #define SI5351_CLK1_PHASE_OFFSET        166
 #define SI5351_CLK2_PHASE_OFFSET        167
+
+#define SI5351_CLK3_0_DISABLE_STATE     24
+#define SI5351_CLK7_4_DISABLE_STATE     25
+
+#define SI5351_FANOUT_ENABLE            187
+#define SI5351_CLKIN_ENABLE             (1<<7)
+#define SI5351_XTAL_ENABLE              (1<<6)
+#define SI5351_MULTISYNTH_ENABLE        (1<<4)
+
+#define SI5351_PLLA_SOURCE              (1<<2)
+#define SI5351_PLLB_SOURCE              (1<<3)
+
+#define SI5351_CLK_INTEGER_MODE         (1<<6)
+#define SI5351_CLK_INVERT               (1<<4)
+#define SI5351_CLK_INPUT_MASK           (3<<2)
+#define SI5351_CLK_INPUT_XTAL           (0<<2)
+#define SI5351_CLK_INPUT_CLKIN          (1<<2)
+#define SI5351_CLK_INPUT_MULTISYNTH_0_4 (2<<2)
+#define SI5351_CLK_INPUT_MULTISYNTH_N   (3<<2)
+
+#define SI5351_OUTPUT_CLK_DIVBY4        (3<<2)
+#define SI5351_OUTPUT_CLK_DIV_SHIFT     4
+
+#define SI5351_CLKIN_DIV_1              (0<<6)
+#define SI5351_CLKIN_DIV_2              (1<<6)
+#define SI5351_CLKIN_DIV_4              (2<<6)
 
 # define do_div(n,base) ({                                      \
         uint64_t __base = (base);                               \
@@ -129,11 +160,20 @@ static void reset_pll(const struct device *dev, uint8_t pll) {
     si5351a_write_reg(dev, SI5351_PLL_RESET, reg_val);
 }
 
+static uint64_t si5351a_calc_pll_corr(uint8_t target_pll, uint64_t freq, uint32_t xtal_freq, struct si5351a_reg_set *reg_set, int32_t correction);
+
 uint64_t si5351a_calc_pll(uint8_t target_pll, uint64_t freq, uint32_t xtal_freq, struct si5351a_reg_set *reg_set) {
+    return si5351a_calc_pll_corr(target_pll, freq, xtal_freq, reg_set, 0);
+}
+
+static uint64_t si5351a_calc_pll_corr(uint8_t target_pll, uint64_t freq, uint32_t xtal_freq, struct si5351a_reg_set *reg_set, int32_t correction) {
     uint64_t ref_freq = xtal_freq * SI5351A_FREQ_MULT;
 
     uint32_t a, b, c, p1, p2, p3;
-	uint64_t lltmp; //, denom;
+	uint64_t lltmp;
+
+    /* Factor calibration value into nominal crystal frequency (ppb) */
+    ref_freq = ref_freq + (int32_t)((((((int64_t)correction) << 31) / 1000000000LL) * ref_freq) >> 31);
 
     if (freq < SI5351_PLL_VCO_MIN * SI5351A_FREQ_MULT)
 	{
@@ -154,6 +194,9 @@ uint64_t si5351a_calc_pll(uint8_t target_pll, uint64_t freq, uint32_t xtal_freq,
 	{
 		freq = ref_freq * SI5351_PLL_A_MAX;
 	}
+
+    /* Recalculate a after freq adjustment */
+    a = freq / ref_freq;
 
     b = (((uint64_t)(freq % ref_freq)) * RFRAC_DENOM) / ref_freq;
     c = b ? RFRAC_DENOM : 1;
@@ -182,8 +225,15 @@ void si5351a_set_pll(const struct device *dev, uint8_t target_pll, uint64_t pll_
     struct si5351a_reg_set reg_set;
     uint8_t base_addr;
     int ret;
+    int32_t correction;
 
-    pll_freq = si5351a_calc_pll(target_pll, pll_freq, cfg->xtal_freq, &reg_set);
+    if (target_pll == 0) {
+        correction = data->ref_correction[(uint8_t)data->plla_ref_osc];
+    } else {
+        correction = data->ref_correction[(uint8_t)data->pllb_ref_osc];
+    }
+
+    si5351a_calc_pll_corr(target_pll, pll_freq, cfg->xtal_freq, &reg_set, correction);
 
     uint8_t params[20];
     uint8_t i = 0;
@@ -223,6 +273,10 @@ void si5351a_set_pll(const struct device *dev, uint8_t target_pll, uint64_t pll_
     }
 
     ret = si5351a_write_multiple(dev, base_addr, params, i);
+    reset_pll(dev, target_pll);
+    if (ret) {
+        return;
+    }
 }
 
 static void set_int(const struct device *dev, uint8_t synth, uint8_t enable) {
@@ -377,13 +431,13 @@ uint64_t multisynth_calc(uint64_t freq, uint64_t pll_freq, struct si5351a_reg_se
 				lltmp = 6;
 			}
 			a = (uint32_t)lltmp;
-
-            b = 0;
-		    c = 1;
-		    pll_freq = a * freq;
 		} else {
 			a = 4;
 		}
+
+		b = 0;
+		c = 1;
+		pll_freq = a * freq;
     } else {
         ret_val = 1;
         a = pll_freq / freq;
@@ -394,6 +448,9 @@ uint64_t multisynth_calc(uint64_t freq, uint64_t pll_freq, struct si5351a_reg_se
 		if (a > SI5351_MULTISYNTH_A_MAX) {
 			freq = pll_freq / SI5351_MULTISYNTH_A_MAX;
 		}
+
+        /* Recalculate a after freq adjustment */
+        a = pll_freq / freq;
 
         b = (pll_freq % freq * RFRAC_DENOM) / freq;
 		c = b ? RFRAC_DENOM : 1;
@@ -466,6 +523,16 @@ static int si5351a_init(const struct device *dev)
         return -ENODEV;
     }
 
+    uint8_t status_reg = 0;
+    int retries = 1000;
+    do {
+        si5351a_read_reg(dev, SI5351_DEVICE_STATUS, &status_reg);
+        if (--retries == 0) {
+            return -ETIMEDOUT;
+        }
+        k_msleep(1);
+    } while (status_reg >> 7 == 1);
+
     uint8_t mask;
     switch (cfg->crystal_load_capacitance) {
     case 0:
@@ -512,9 +579,17 @@ static int si5351a_init(const struct device *dev)
     data->pll_assignments[1] = 0;
     data->pll_assignments[2] = 0;
 
+    data->ref_correction[0] = 0;
+    data->ref_correction[1] = 0;
+    data->plla_ref_osc = SI5351A_PLL_INPUT_XO;
+    data->pllb_ref_osc = SI5351A_PLL_INPUT_XO;
+
     si5351a_set_ms_source(dev, 0, 0);
     si5351a_set_ms_source(dev, 1, 0);
     si5351a_set_ms_source(dev, 2, 0);
+
+    /* Explicitly disable all outputs */
+    si5351a_write_reg(dev, SI5351_OUTPUT_ENABLE_CTRL, 0xFF);
 
     reset_pll(dev, 0);
     reset_pll(dev, 1);
@@ -525,7 +600,7 @@ static int si5351a_init(const struct device *dev)
 uint8_t si5351a_set_freq(const struct device *dev, uint8_t output, uint64_t freq) {
     struct si5351a_data *data = dev->data;
     struct si5351a_reg_set reg_set;
-	// uint64_t pll_freq;
+	uint64_t pll_freq;
 	uint8_t int_mode = 0;
 	uint8_t div_by_4 = 0;
 	uint8_t r_div = 0;
@@ -539,16 +614,64 @@ uint8_t si5351a_set_freq(const struct device *dev, uint8_t output, uint64_t freq
     }
 
     if(freq > (SI5351_MULTISYNTH_SHARE_MAX * SI5351A_FREQ_MULT)) {
-        // TODO: idk
+        uint8_t i;
+
+        for(i = 0; i < SI5351A_NUM_OUTPUTS; i++) {
+            if(data->output_freq[i] > (SI5351_MULTISYNTH_SHARE_MAX * SI5351A_FREQ_MULT)) {
+                if(i != output && data->pll_assignments[i] == data->pll_assignments[output]) {
+                    return 1;
+                }
+            }
+        }
+
+        si5351a_output_enable(dev, output, 1);
+
+        data->output_freq[output] = freq;
+
+        pll_freq = multisynth_calc(freq, 0, &reg_set);
+
+        si5351a_set_pll(dev, data->pll_assignments[output], pll_freq);
+
+        for(i = 0; i < SI5351A_NUM_OUTPUTS; i++) {
+            if(data->output_freq[i] != 0) {
+                if(data->pll_assignments[i] == data->pll_assignments[output]) {
+                    struct si5351a_reg_set temp_reg;
+                    uint64_t temp_freq;
+
+                    temp_freq = data->output_freq[i];
+                    r_div = select_r_div(&temp_freq);
+
+                    multisynth_calc(temp_freq, pll_freq, &temp_reg);
+
+                    if(temp_freq >= SI5351_MULTISYNTH_DIVBY4_FREQ * SI5351A_FREQ_MULT) {
+                        div_by_4 = 1;
+                        int_mode = 1;
+                    } else {
+                        div_by_4 = 0;
+                        int_mode = 0;
+                    }
+
+                    si5351a_set_multisynth(dev, i, temp_reg, int_mode, r_div, div_by_4);
+                }
+            }
+        }
+
+        reset_pll(dev, data->pll_assignments[output]);
     } else {
+        si5351a_output_enable(dev, output, 1);
+
         data->output_freq[output] = freq;
         r_div = select_r_div(&freq);
 
         if (data->pll_assignments[output] == 0) {
             multisynth_calc(freq, data->plla_freq, &reg_set);
-
         } else {
             multisynth_calc(freq, data->pllb_freq, &reg_set);
+        }
+
+        if(freq >= SI5351_MULTISYNTH_DIVBY4_FREQ * SI5351A_FREQ_MULT) {
+            div_by_4 = 1;
+            int_mode = 1;
         }
 
         si5351a_set_multisynth(dev, output, reg_set, int_mode, r_div, div_by_4);
@@ -557,6 +680,230 @@ uint8_t si5351a_set_freq(const struct device *dev, uint8_t output, uint64_t freq
     return 0;
 }
 
+
+void si5351a_drive_strength(const struct device *dev, uint8_t clk, enum si5351a_drive drive) {
+    uint8_t reg_val;
+
+    si5351a_read_reg(dev, SI5351_CLK0_CTRL + clk, &reg_val);
+    reg_val &= ~(0x03);
+    reg_val |= (uint8_t)drive;
+    si5351a_write_reg(dev, SI5351_CLK0_CTRL + clk, reg_val);
+}
+
+void si5351a_set_clock_pwr(const struct device *dev, uint8_t clk, uint8_t pwr) {
+    uint8_t reg_val;
+
+    si5351a_read_reg(dev, SI5351_CLK0_CTRL + clk, &reg_val);
+
+    if (pwr == 1) {
+        reg_val &= 0b01111111;
+    } else {
+        reg_val |= 0b10000000;
+    }
+
+    si5351a_write_reg(dev, SI5351_CLK0_CTRL + clk, reg_val);
+}
+
+void si5351a_set_clock_invert(const struct device *dev, uint8_t clk, uint8_t inv) {
+    uint8_t reg_val;
+
+    si5351a_read_reg(dev, SI5351_CLK0_CTRL + clk, &reg_val);
+
+    if (inv == 1) {
+        reg_val |= SI5351_CLK_INVERT;
+    } else {
+        reg_val &= ~(SI5351_CLK_INVERT);
+    }
+
+    si5351a_write_reg(dev, SI5351_CLK0_CTRL + clk, reg_val);
+}
+
+void si5351a_set_clock_source(const struct device *dev, uint8_t clk, enum si5351a_clock_source src) {
+    uint8_t reg_val;
+
+    si5351a_read_reg(dev, SI5351_CLK0_CTRL + clk, &reg_val);
+    reg_val &= ~(SI5351_CLK_INPUT_MASK);
+
+    switch (src) {
+    case SI5351A_CLK_SRC_XTAL:
+        reg_val |= SI5351_CLK_INPUT_XTAL;
+        break;
+    case SI5351A_CLK_SRC_CLKIN:
+        reg_val |= SI5351_CLK_INPUT_CLKIN;
+        break;
+    case SI5351A_CLK_SRC_MS0:
+        if (clk == 0) {
+            return;
+        }
+        reg_val |= SI5351_CLK_INPUT_MULTISYNTH_0_4;
+        break;
+    case SI5351A_CLK_SRC_MS:
+        reg_val |= SI5351_CLK_INPUT_MULTISYNTH_N;
+        break;
+    default:
+        return;
+    }
+
+    si5351a_write_reg(dev, SI5351_CLK0_CTRL + clk, reg_val);
+}
+
+void si5351a_set_clock_disable(const struct device *dev, uint8_t clk, enum si5351a_clock_disable dis_state) {
+    uint8_t reg_val;
+    uint8_t reg;
+
+    if (clk <= 3) {
+        reg = SI5351_CLK3_0_DISABLE_STATE;
+    } else {
+        return;
+    }
+
+    si5351a_read_reg(dev, reg, &reg_val);
+    reg_val &= ~(0x03 << (clk * 2));
+    reg_val |= ((uint8_t)dis_state) << (clk * 2);
+    si5351a_write_reg(dev, reg, reg_val);
+}
+
+void si5351a_set_clock_fanout(const struct device *dev, enum si5351a_clock_fanout fanout, uint8_t enable) {
+    uint8_t reg_val;
+
+    si5351a_read_reg(dev, SI5351_FANOUT_ENABLE, &reg_val);
+
+    switch (fanout) {
+    case SI5351A_FANOUT_CLKIN:
+        if (enable) {
+            reg_val |= SI5351_CLKIN_ENABLE;
+        } else {
+            reg_val &= ~(SI5351_CLKIN_ENABLE);
+        }
+        break;
+    case SI5351A_FANOUT_XO:
+        if (enable) {
+            reg_val |= SI5351_XTAL_ENABLE;
+        } else {
+            reg_val &= ~(SI5351_XTAL_ENABLE);
+        }
+        break;
+    case SI5351A_FANOUT_MS:
+        if (enable) {
+            reg_val |= SI5351_MULTISYNTH_ENABLE;
+        } else {
+            reg_val &= ~(SI5351_MULTISYNTH_ENABLE);
+        }
+        break;
+    }
+
+    si5351a_write_reg(dev, SI5351_FANOUT_ENABLE, reg_val);
+}
+
+void si5351a_set_pll_input(const struct device *dev, uint8_t pll, enum si5351a_pll_input input) {
+    struct si5351a_data *data = dev->data;
+    uint8_t reg_val;
+
+    si5351a_read_reg(dev, SI5351_PLL_INPUT_SOURCE, &reg_val);
+
+    if (pll == 0) {
+        if (input == SI5351A_PLL_INPUT_CLKIN) {
+            reg_val |= SI5351_PLLA_SOURCE;
+            reg_val |= SI5351_CLKIN_DIV_1;
+            data->plla_ref_osc = SI5351A_PLL_INPUT_CLKIN;
+        } else {
+            reg_val &= ~(SI5351_PLLA_SOURCE);
+            data->plla_ref_osc = SI5351A_PLL_INPUT_XO;
+        }
+    } else {
+        if (input == SI5351A_PLL_INPUT_CLKIN) {
+            reg_val |= SI5351_PLLB_SOURCE;
+            reg_val |= SI5351_CLKIN_DIV_1;
+            data->pllb_ref_osc = SI5351A_PLL_INPUT_CLKIN;
+        } else {
+            reg_val &= ~(SI5351_PLLB_SOURCE);
+            data->pllb_ref_osc = SI5351A_PLL_INPUT_XO;
+        }
+    }
+
+    si5351a_write_reg(dev, SI5351_PLL_INPUT_SOURCE, reg_val);
+
+    si5351a_set_pll(dev, 0, data->plla_freq);
+    si5351a_set_pll(dev, 1, data->pllb_freq);
+}
+
+uint8_t si5351a_set_freq_manual(const struct device *dev, uint8_t output, uint64_t freq, uint64_t pll_freq) {
+    struct si5351a_data *data = dev->data;
+    struct si5351a_reg_set reg_set;
+    uint8_t int_mode = 0;
+    uint8_t div_by_4 = 0;
+    uint8_t r_div;
+
+    if (freq > 0 && freq < SI5351_CLKOUT_MIN_FREQ * SI5351A_FREQ_MULT) {
+        freq = SI5351_CLKOUT_MIN_FREQ * SI5351A_FREQ_MULT;
+    }
+
+    if (freq > SI5351_CLKOUT_MAX_FREQ * SI5351A_FREQ_MULT) {
+        freq = SI5351_CLKOUT_MAX_FREQ * SI5351A_FREQ_MULT;
+    }
+
+    data->output_freq[output] = freq;
+
+    si5351a_set_pll(dev, data->pll_assignments[output], pll_freq);
+    si5351a_output_enable(dev, output, 1);
+
+    r_div = select_r_div(&freq);
+    multisynth_calc(freq, pll_freq, &reg_set);
+
+    if (freq >= SI5351_MULTISYNTH_DIVBY4_FREQ * SI5351A_FREQ_MULT) {
+        div_by_4 = 1;
+        int_mode = 1;
+    }
+
+    si5351a_set_multisynth(dev, output, reg_set, int_mode, r_div, div_by_4);
+
+    return 0;
+}
+
+void si5351a_set_correction(const struct device *dev, int32_t corr, enum si5351a_pll_input ref_osc) {
+    struct si5351a_data *data = dev->data;
+
+    data->ref_correction[(uint8_t)ref_osc] = corr;
+
+    si5351a_set_pll(dev, 0, data->plla_freq);
+    si5351a_set_pll(dev, 1, data->pllb_freq);
+}
+
+int32_t si5351a_get_correction(const struct device *dev, enum si5351a_pll_input ref_osc) {
+    struct si5351a_data *data = dev->data;
+
+    return data->ref_correction[(uint8_t)ref_osc];
+}
+
+void si5351a_update_sys_status(const struct device *dev) {
+    struct si5351a_data *data = dev->data;
+    uint8_t reg_val = 0;
+
+    si5351a_read_reg(dev, SI5351_DEVICE_STATUS, &reg_val);
+
+    data->dev_status.SYS_INIT = (reg_val >> 7) & 0x01;
+    data->dev_status.LOL_B = (reg_val >> 6) & 0x01;
+    data->dev_status.LOL_A = (reg_val >> 5) & 0x01;
+    data->dev_status.LOS = (reg_val >> 4) & 0x01;
+    data->dev_status.REVID = reg_val & 0x03;
+}
+
+void si5351a_update_int_status(const struct device *dev) {
+    struct si5351a_data *data = dev->data;
+    uint8_t reg_val = 0;
+
+    si5351a_read_reg(dev, SI5351_INTERRUPT_STATUS, &reg_val);
+
+    data->dev_int_status.SYS_INIT_STKY = (reg_val >> 7) & 0x01;
+    data->dev_int_status.LOL_B_STKY = (reg_val >> 6) & 0x01;
+    data->dev_int_status.LOL_A_STKY = (reg_val >> 5) & 0x01;
+    data->dev_int_status.LOS_STKY = (reg_val >> 4) & 0x01;
+}
+
+void si5351a_update_status(const struct device *dev) {
+    si5351a_update_sys_status(dev);
+    si5351a_update_int_status(dev);
+}
 
 #define SI5351A_INST(inst)                                          \
     static struct si5351a_data si5351a_data_##inst;                 \
