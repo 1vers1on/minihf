@@ -106,7 +106,7 @@ static void apply_symbol(const tx_symbol_t *sym) {
         // printk("tx_engine: TX on, freq_fp=%llu\n", freq);
         // // si5351a_set_freq(si5351a, TX_CLK_OUTPUT, freq);
         // // si5351a_output_enable(si5351a, TX_CLK_OUTPUT, true);
-        // regulator_enable(regulator);
+        regulator_enable(regulator);
     } else {
         tx_off();
     }
@@ -114,6 +114,6 @@ static void apply_symbol(const tx_symbol_t *sym) {
 
 static void tx_off() {
     printk("tx_engine: TX off\n");
-    // si5351a_output_enable(si5351a, TX_CLK_OUTPUT, false);
+    si5351a_enable_output(si5351a, TX_CLK_OUTPUT, false);
     regulator_disable(regulator);
 }

@@ -14,18 +14,12 @@
 #include "hardware/tr_switch.h"
 #include <zephyr/drivers/display.h>
 #include <zephyr/display/cfb.h>
-
-static char dbg_buf[256];
-#define debug_printf(fmt, ...) do { \
-    snprintf(dbg_buf, sizeof(dbg_buf), fmt, ##__VA_ARGS__); \
-    send_debug_message(dbg_buf); \
-} while(0)
+#include "hardware/oled.h"
 
 const struct device *regulator = DEVICE_DT_GET(DT_NODELABEL(tps55289));
 const struct device *si5351a = DEVICE_DT_GET(DT_NODELABEL(si5351a));
 const struct device *uart_dev = DEVICE_DT_GET(DT_NODELABEL(lpuart1));
 const struct device *rtc_dev = DEVICE_DT_GET(DT_NODELABEL(rtc));
-const struct device *oled_dev = DEVICE_DT_GET(DT_NODELABEL(ssd1306));
 
 #define LED1_NODE DT_NODELABEL(led1)
 #define LED2_NODE DT_NODELABEL(led2)
@@ -37,6 +31,7 @@ static const struct gpio_dt_spec led2 = GPIO_DT_SPEC_GET(LED2_NODE, gpios);
 static const struct gpio_dt_spec led3 = GPIO_DT_SPEC_GET(LED3_NODE, gpios);
 static const struct gpio_dt_spec led4 = GPIO_DT_SPEC_GET(LED4_NODE, gpios);
 
+char dbg_buf[256];
 
 static int regulator_init() {
     debug_printf("[REG] Starting regulator init");
@@ -96,31 +91,6 @@ static int init_si5351a() {
         debug_printf("[SI5351A] Failed to enable output");
         return ret;
     }
-    return 0;
-}
-
-static int init_oled() {
-    debug_printf("[OLED] Starting OLED init");
-    int tries = 0;
-    while (!device_is_ready(oled_dev)) {
-        debug_printf("[OLED] Waiting for device (attempt %d/%d)", tries + 1, OLED_TRY_COUNT);
-        k_sleep(K_SECONDS(1));
-        tries++;
-        if (tries > OLED_TRY_COUNT) {
-            debug_printf("[OLED] Device not ready after %d attempts", OLED_TRY_COUNT);
-            return -1;
-        }
-    }
-    debug_printf("[OLED] Device ready, init complete");
-
-    debug_printf("[OLED] Initializing framebuffer");
-    if (cfb_framebuffer_init(oled_dev) != 0) {
-        debug_printf("[OLED] Failed to initialize framebuffer");
-        return -1;
-    }
-    debug_printf("[OLED] Clearing display");
-
-
     return 0;
 }
 
@@ -195,8 +165,6 @@ int main(void) {
     gpio_pin_set_dt(&led4, 0);
 
     debug_printf("[MAIN] Init complete, entering main loop");
-
-    cfb_print(oled_dev, "Hello Zephyr!", 0, 0);
 
     while (1) {
         gpio_pin_toggle_dt(&led1);
