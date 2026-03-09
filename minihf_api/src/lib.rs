@@ -2,7 +2,9 @@ use std::time::{Duration, Instant};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::io::{Read, Write};
 use serialport::SerialPort;
-use std::sync::atomic::{AtomicU16, Ordering};
+use std::sync::atomic::{AtomicU16, AtomicBool, Ordering};
+use std::collections::HashMap;
+use std::thread;
 
 use cobs::{encode, decode_vec, max_encoding_length};
 use crc::{Crc, CRC_16_KERMIT};
@@ -111,7 +113,6 @@ impl FdTransport {
     #[cfg(unix)]
     fn new(fd: i32, timeout: Duration) -> Self {
         use std::os::unix::io::FromRawFd;
-        // Safety: caller transfers ownership of the fd — it will be closed on drop.
         let file = unsafe { std::fs::File::from_raw_fd(fd) };
         Self { file, timeout }
     }
@@ -196,12 +197,26 @@ pub struct BuckRegulatorState {
     pub voltage_level: u8,
 }
 
+#[derive(Clone)]
+struct ParsedPacket {
+    ptype: u8,
+    id: u16,
+    payload: Vec<u8>,
+}
+
 #[derive(uniffi::Object)]
 pub struct MiniHF {
     port: Arc<Mutex<Option<Box<dyn Transport>>>>,
     next_id: AtomicU16,
     timeout: Duration,
-    rx_buf: Mutex<Vec<u8>>,
+    responses: Arc<Mutex<HashMap<u16, ParsedPacket>>>,
+    is_running: Arc<AtomicBool>,
+}
+
+impl Drop for MiniHF {
+    fn drop(&mut self) {
+        self.is_running.store(false, Ordering::Relaxed);
+    }
 }
 
 #[uniffi::export]
@@ -215,17 +230,21 @@ impl MiniHF {
     pub fn new_with_timeout(path: String, baud: u32, timeout_ms: u64) -> Result<Arc<Self>, MiniHFError> {
         debug_log(&format!("opening serial port {} @ {} baud (timeout {}ms)", path, baud, timeout_ms));
         let port = serialport::new(path, baud)
-            .timeout(Duration::from_millis(timeout_ms))
+            .timeout(Duration::from_millis(10)) // Short timeout for background non-blocking reads
             .open()
             .map_err(|e| MiniHFError::Io(e.to_string()))?;
         debug_log("serial port opened successfully");
 
-        Ok(Arc::new(Self {
+        let hf = Arc::new(Self {
             port: Arc::new(Mutex::new(Some(Box::new(SerialTransport(port))))),
             next_id: AtomicU16::new(1),
             timeout: Duration::from_millis(timeout_ms),
-            rx_buf: Mutex::new(Vec::new()),
-        }))
+            responses: Arc::new(Mutex::new(HashMap::new())),
+            is_running: Arc::new(AtomicBool::new(true)),
+        });
+
+        hf.spawn_reader_thread();
+        Ok(hf)
     }
 
     #[uniffi::constructor]
@@ -239,13 +258,17 @@ impl MiniHF {
         #[cfg(unix)]
         {
             debug_log(&format!("opening fd {} (timeout {}ms)", fd, timeout_ms));
-            let transport = FdTransport::new(fd, Duration::from_millis(timeout_ms));
-            Ok(Arc::new(Self {
+            let transport = FdTransport::new(fd, Duration::from_millis(10));
+            let hf = Arc::new(Self {
                 port: Arc::new(Mutex::new(Some(Box::new(transport)))),
                 next_id: AtomicU16::new(1),
                 timeout: Duration::from_millis(timeout_ms),
-                rx_buf: Mutex::new(Vec::new()),
-            }))
+                responses: Arc::new(Mutex::new(HashMap::new())),
+                is_running: Arc::new(AtomicBool::new(true)),
+            });
+
+            hf.spawn_reader_thread();
+            Ok(hf)
         }
     }
 
@@ -321,6 +344,11 @@ impl MiniHF {
         })
     }
 
+    pub fn set_tr_switch(&self, tx_mode: bool) -> Result<(), MiniHFError> {
+        self.transact(0x08, vec![if tx_mode { 1 } else { 0 }])?;
+        Ok(())
+    }
+
     pub fn tx_test_signal(&self, duration_ms: u32) -> Result<(), MiniHFError> {
         if duration_ms == 0 {
             return Err(MiniHFError::InvalidArgument(
@@ -337,68 +365,74 @@ impl MiniHF {
         Ok(())
     }
 
-    pub fn poll_debug(&self, duration_ms: u64) -> Result<(), MiniHFError> {
-        let deadline = Instant::now() + Duration::from_millis(duration_ms);
-        let mut port_opt = self.port.lock().unwrap();
-        let port = port_opt.as_mut().ok_or(MiniHFError::PortClosed)?;
-        let mut rx_buf = self.rx_buf.lock().unwrap();
-
-        loop {
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            if remaining.is_zero() {
-                return Ok(());
-            }
-
-            port.set_timeout(remaining)?;
-
-            let to_read = port.bytes_available().unwrap_or(0);
-            let mut tmp = vec![0u8; to_read.max(1)];
-
-            match port.read(&mut tmp) {
-                Ok(n) => {
-                    rx_buf.extend_from_slice(&tmp[..n]);
-                }
-                Err(ref e) if e.kind() == std::io::ErrorKind::TimedOut => continue,
-                Err(e) => return Err(MiniHFError::Io(e.to_string())),
-            }
-
-            while let Some(idx) = rx_buf.iter().position(|&b| b == 0x00) {
-                let frame_data: Vec<u8> = rx_buf.drain(..=idx).collect();
-                let frame_bytes = &frame_data[..frame_data.len() - 1];
-
-                if frame_bytes.is_empty() {
-                    continue;
-                }
-
-                let decoded = match decode_vec(frame_bytes) {
-                    Ok(d) => d,
-                    Err(_) => continue,
-                };
-
-                if let Some(pkt) = parse_packet(&decoded) {
-                    if pkt.ptype == DEBUG_MSG_CMD {
-                        let msg = String::from_utf8_lossy(&pkt.payload);
-                        debug_log(&format!("[device] {}", msg));
-                    }
-                }
-            }
-        }
-    }
-
     pub fn close(&self) -> Result<(), MiniHFError> {
         debug_log("closing connection");
+        self.is_running.store(false, Ordering::Relaxed);
         let mut port_opt = self.port.lock().unwrap();
         if let Some(ref mut port) = *port_opt {
             let _ = port.flush();
         }
         *port_opt = None;
-        let mut rx_buf = self.rx_buf.lock().unwrap();
-        rx_buf.clear();
+        self.responses.lock().unwrap().clear();
         Ok(())
     }
 }
 
 impl MiniHF {
+    fn spawn_reader_thread(&self) {
+        let port_arc = self.port.clone();
+        let responses_arc = self.responses.clone();
+        let is_running_arc = self.is_running.clone();
+
+        thread::spawn(move || {
+            let mut rx_buf = Vec::new();
+
+            while is_running_arc.load(Ordering::Relaxed) {
+                let mut bytes_read = 0;
+
+                // Lock the port just long enough to read available data
+                if let Ok(mut port_opt) = port_arc.lock() {
+                    if let Some(ref mut port) = *port_opt {
+                        let to_read = port.bytes_available().unwrap_or(0);
+                        if to_read > 0 {
+                            let mut tmp = vec![0u8; to_read.max(1)];
+                            if let Ok(n) = port.read(&mut tmp) {
+                                rx_buf.extend_from_slice(&tmp[..n]);
+                                bytes_read = n;
+                            }
+                        }
+                    }
+                }
+
+                if bytes_read > 0 {
+                    while let Some(idx) = rx_buf.iter().position(|&b| b == 0x00) {
+                        let frame_data: Vec<u8> = rx_buf.drain(..=idx).collect();
+                        let frame_bytes = &frame_data[..frame_data.len() - 1];
+
+                        if frame_bytes.is_empty() { continue; }
+
+                        if let Ok(decoded) = decode_vec(frame_bytes) {
+                            if let Some(pkt) = parse_packet(&decoded) {
+                                if pkt.ptype == DEBUG_MSG_CMD {
+                                    let msg = String::from_utf8_lossy(&pkt.payload);
+                                    debug_log(&format!("[device] {}", msg));
+                                } else {
+                                    // It's a response packet, route it to `transact`
+                                    if let Ok(mut map) = responses_arc.lock() {
+                                        map.insert(pkt.id, pkt);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Sleep briefly to yield CPU and allow `transact` to grab the port lock to write
+                thread::sleep(Duration::from_millis(5));
+            }
+        });
+    }
+
     fn send_only(&self, cmd_id: u8, payload: Vec<u8>) -> Result<(), MiniHFError> {
         if payload.len() > 255 {
             return Err(MiniHFError::InvalidArgument(
@@ -408,6 +442,7 @@ impl MiniHF {
         let current_id = self.next_id.fetch_add(1, Ordering::SeqCst);
         debug_log(&format!("TX cmd=0x{:02X} id={} len={} (fire-and-forget)", cmd_id, current_id, payload.len()));
         let frame = frame_packet(cmd_id, current_id, &payload);
+        
         let mut port_opt = self.port.lock().unwrap();
         let port = port_opt.as_mut().ok_or(MiniHFError::PortClosed)?;
         port.write_all(&frame).map_err(|e| MiniHFError::Io(e.to_string()))?;
@@ -424,60 +459,23 @@ impl MiniHF {
         debug_log(&format!("TX cmd=0x{:02X} id={} len={}", cmd_id, current_id, payload.len()));
         let frame = frame_packet(cmd_id, current_id, &payload);
 
-        let mut port_opt = self.port.lock().unwrap();
-        let port = port_opt.as_mut().ok_or(MiniHFError::PortClosed)?;
-        port.write_all(&frame).map_err(|e| MiniHFError::Io(e.to_string()))?;
+        // Scope the lock so the reader thread can continue
+        {
+            let mut port_opt = self.port.lock().unwrap();
+            let port = port_opt.as_mut().ok_or(MiniHFError::PortClosed)?;
+            port.write_all(&frame).map_err(|e| MiniHFError::Io(e.to_string()))?;
+        }
 
         let deadline = Instant::now() + self.timeout;
-        let mut rx_buf = self.rx_buf.lock().unwrap();
 
+        // Poll our synchronized map for the response
         loop {
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            if remaining.is_zero() {
-                rx_buf.clear();
+            if Instant::now() > deadline {
                 return Err(MiniHFError::Timeout);
             }
 
-            port.set_timeout(remaining)?;
-
-            let to_read = port.bytes_available()?;
-            let mut tmp = vec![0u8; to_read.max(1)];
-
-            match port.read(&mut tmp) {
-                Ok(n) => {
-                    debug_log(&format!("RX {} bytes", n));
-                    rx_buf.extend_from_slice(&tmp[..n]);
-                }
-                Err(ref e) if e.kind() == std::io::ErrorKind::TimedOut => continue,
-                Err(e) => return Err(MiniHFError::Io(e.to_string())),
-            }
-
-            while let Some(idx) = rx_buf.iter().position(|&b| b == 0x00) {
-                let frame_data: Vec<u8> = rx_buf.drain(..=idx).collect();
-                let frame_bytes = &frame_data[..frame_data.len() - 1];
-
-                if frame_bytes.is_empty() {
-                    continue;
-                }
-
-                let decoded = match decode_vec(frame_bytes) {
-                    Ok(d) => d,
-                    Err(_) => {
-                        debug_log("RX frame COBS decode failed, skipping");
-                        continue;
-                    }
-                };
-
-                if let Some(pkt) = parse_packet(&decoded) {
-                    if pkt.ptype == DEBUG_MSG_CMD {
-                        let msg = String::from_utf8_lossy(&pkt.payload);
-                        debug_log(&format!("[device] {}", msg));
-                        continue;
-                    }
-                    if pkt.id != current_id {
-                        debug_log(&format!("RX ignoring pkt id={} (expected {})", pkt.id, current_id));
-                        continue;
-                    }
+            if let Ok(mut map) = self.responses.lock() {
+                if let Some(pkt) = map.remove(&current_id) {
                     if pkt.ptype == RESP_NACK {
                         debug_log(&format!("RX NACK for id={}", current_id));
                         return Err(MiniHFError::Nack);
@@ -486,14 +484,10 @@ impl MiniHF {
                     return Ok(pkt.payload);
                 }
             }
+
+            thread::sleep(Duration::from_millis(5));
         }
     }
-}
-
-struct ParsedPacket {
-    ptype: u8,
-    id: u16,
-    payload: Vec<u8>,
 }
 
 fn build_packet(cmd_id: u8, pkt_id: u16, payload: &[u8]) -> Vec<u8> {
@@ -521,18 +515,14 @@ fn frame_packet(cmd_id: u8, pkt_id: u16, payload: &[u8]) -> Vec<u8> {
 }
 
 fn parse_packet(raw: &[u8]) -> Option<ParsedPacket> {
-    if raw.len() < HEADER_SIZE + 2 {
-        return None;
-    }
-    if raw[0] != HEADER_BYTE {
-        return None;
-    }
+    if raw.len() < HEADER_SIZE + 2 { return None; }
+    if raw[0] != HEADER_BYTE { return None; }
+    
     let ptype = raw[1];
     let id = u16::from_le_bytes([raw[2], raw[3]]);
     let length = raw[4] as usize;
-    if raw.len() < HEADER_SIZE + length + 2 {
-        return None;
-    }
+    
+    if raw.len() < HEADER_SIZE + length + 2 { return None; }
     let payload = raw[HEADER_SIZE..HEADER_SIZE + length].to_vec();
 
     let crc_obj = Crc::<u16>::new(&CRC_16_KERMIT);
@@ -541,8 +531,7 @@ fn parse_packet(raw: &[u8]) -> Option<ParsedPacket> {
         raw[HEADER_SIZE + length],
         raw[HEADER_SIZE + length + 1],
     ]);
-    if crc_calc != crc_recv {
-        return None;
-    }
+    
+    if crc_calc != crc_recv { return None; }
     Some(ParsedPacket { ptype, id, payload })
 }

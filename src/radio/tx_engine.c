@@ -99,14 +99,14 @@ static void tx_work_handler(struct k_work *work) {
 
 static void apply_symbol(const tx_symbol_t *sym) {
     if (sym->tx_on) {
-        int64_t offset_fp = (int64_t)(sym->freq_offset_hz * SI5351A_FREQ_MULT);
-        uint64_t freq = (uint64_t)((int64_t)(active_seq->base_freq_hz *
-                         (uint64_t)SI5351A_FREQ_MULT) + offset_fp);
+        // int64_t offset_fp = (int64_t)(sym->freq_offset_hz * SI5351A_FREQ_MULT);
+        // uint64_t freq = (uint64_t)((int64_t)(active_seq->base_freq_hz *
+        //                  (uint64_t)SI5351A_FREQ_MULT) + offset_fp);
 
-        printk("tx_engine: TX on, freq_fp=%llu\n", freq);
-        si5351a_set_freq(si5351a, TX_CLK_OUTPUT, freq);
-        si5351a_output_enable(si5351a, TX_CLK_OUTPUT, true);
-        regulator_enable(regulator);
+        // printk("tx_engine: TX on, freq_fp=%llu\n", freq);
+        // // si5351a_set_freq(si5351a, TX_CLK_OUTPUT, freq);
+        // // si5351a_output_enable(si5351a, TX_CLK_OUTPUT, true);
+        // regulator_enable(regulator);
     } else {
         tx_off();
     }
@@ -114,6 +114,6 @@ static void apply_symbol(const tx_symbol_t *sym) {
 
 static void tx_off() {
     printk("tx_engine: TX off\n");
-    si5351a_output_enable(si5351a, TX_CLK_OUTPUT, false);
+    // si5351a_output_enable(si5351a, TX_CLK_OUTPUT, false);
     regulator_disable(regulator);
 }

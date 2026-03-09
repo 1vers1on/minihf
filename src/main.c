@@ -11,6 +11,9 @@
 #include <zephyr/drivers/gpio.h>
 #include <stm32l4xx.h>
 #include <stdio.h>
+#include "hardware/tr_switch.h"
+#include <zephyr/drivers/display.h>
+#include <zephyr/display/cfb.h>
 
 static char dbg_buf[256];
 #define debug_printf(fmt, ...) do { \
@@ -22,6 +25,7 @@ const struct device *regulator = DEVICE_DT_GET(DT_NODELABEL(tps55289));
 const struct device *si5351a = DEVICE_DT_GET(DT_NODELABEL(si5351a));
 const struct device *uart_dev = DEVICE_DT_GET(DT_NODELABEL(lpuart1));
 const struct device *rtc_dev = DEVICE_DT_GET(DT_NODELABEL(rtc));
+const struct device *oled_dev = DEVICE_DT_GET(DT_NODELABEL(ssd1306));
 
 #define LED1_NODE DT_NODELABEL(led1)
 #define LED2_NODE DT_NODELABEL(led2)
@@ -32,6 +36,7 @@ static const struct gpio_dt_spec led1 = GPIO_DT_SPEC_GET(LED1_NODE, gpios);
 static const struct gpio_dt_spec led2 = GPIO_DT_SPEC_GET(LED2_NODE, gpios);
 static const struct gpio_dt_spec led3 = GPIO_DT_SPEC_GET(LED3_NODE, gpios);
 static const struct gpio_dt_spec led4 = GPIO_DT_SPEC_GET(LED4_NODE, gpios);
+
 
 static int regulator_init() {
     debug_printf("[REG] Starting regulator init");
@@ -67,42 +72,55 @@ static int init_si5351a() {
             return -1;
         }
     }
-    debug_printf("[SI5351A] Device ready");
+    int ret;
+    k_msleep(500); // give it a moment to power up
+    debug_printf("[SI5351A] setting pll registers");
+    ret = si5351a_set_pll_freq(si5351a, 'A', 600000000);
+    if (ret) {
+        debug_printf("[SI5351A] Failed to set PLLA registers");
+        return ret;
+    }
+    k_msleep(500);
+    ret = si5351a_set_ms_freq(si5351a, 0, 500000, 0, 'A');
+    if (ret) {
+        debug_printf("[SI5351A] Failed to set multisynth registers");
+        return ret;
+    }
+    ret = si5351a_reset_pll(si5351a, true, true);
+    if (ret) {
+        debug_printf("[SI5351A] Failed to reset PLL");
+        return ret;
+    }
+    ret = si5351a_enable_output(si5351a, 0, true);
+    if (ret) {
+        debug_printf("[SI5351A] Failed to enable output");
+        return ret;
+    }
+    return 0;
+}
 
-    debug_printf("[SI5351A] Disabling all outputs");
-    si5351a_output_enable(si5351a, 0, false);
-    si5351a_output_enable(si5351a, 1, false);
-    si5351a_output_enable(si5351a, 2, false);
+static int init_oled() {
+    debug_printf("[OLED] Starting OLED init");
+    int tries = 0;
+    while (!device_is_ready(oled_dev)) {
+        debug_printf("[OLED] Waiting for device (attempt %d/%d)", tries + 1, OLED_TRY_COUNT);
+        k_sleep(K_SECONDS(1));
+        tries++;
+        if (tries > OLED_TRY_COUNT) {
+            debug_printf("[OLED] Device not ready after %d attempts", OLED_TRY_COUNT);
+            return -1;
+        }
+    }
+    debug_printf("[OLED] Device ready, init complete");
 
-    debug_printf("[SI5351A] Setting MS sources to PLL A");
-    si5351a_set_ms_source(si5351a, 0, 0);
-    si5351a_set_ms_source(si5351a, 1, 0);
-    si5351a_set_ms_source(si5351a, 2, 0);
+    debug_printf("[OLED] Initializing framebuffer");
+    if (cfb_framebuffer_init(oled_dev) != 0) {
+        debug_printf("[OLED] Failed to initialize framebuffer");
+        return -1;
+    }
+    debug_printf("[OLED] Clearing display");
 
-    uint8_t ret;
-    debug_printf("[SI5351A] Setting CLK0 to 100 MHz");
-    ret = si5351a_set_freq(si5351a, 0, 100000000);
-    debug_printf("[SI5351A] CLK0 set_freq returned %u", ret);
-    si5351a_output_enable(si5351a, 0, true);
 
-    debug_printf("[SI5351A] Setting CLK1 to 100 MHz");
-    ret = si5351a_set_freq(si5351a, 1, 100000000);
-    debug_printf("[SI5351A] CLK1 set_freq returned %u", ret);
-    si5351a_output_enable(si5351a, 1, true);
-
-    debug_printf("[SI5351A] Setting CLK2 to 100 MHz");
-    ret = si5351a_set_freq(si5351a, 2, 100000000);
-    debug_printf("[SI5351A] CLK2 set_freq returned %u", ret);
-    si5351a_output_enable(si5351a, 2, true);
-    
-    si5351a_set_clock_pwr(si5351a, 0, 1);
-    si5351a_set_clock_pwr(si5351a, 1, 1);
-    si5351a_set_clock_pwr(si5351a, 2, 1);
-
-    si5351a_set_pll(si5351a, 0, 80000000000ULL);
-    si5351a_set_pll(si5351a, 1, 80000000000ULL);
-
-    debug_printf("[SI5351A] All outputs enabled, init complete");
     return 0;
 }
 
@@ -135,7 +153,6 @@ int main(void) {
 
     enable_debug_in_pm();
 
-    // init UART first so we can use send_debug_message everywhere
     uart_handler_init();
 
     debug_printf("=== minihf boot ===");
@@ -154,6 +171,15 @@ int main(void) {
         return -1;
     }
 
+    if (tr_switch_init() < 0) {
+        debug_printf("[MAIN] TR switch init failed, aborting");
+        return -1;
+    }
+
+    if (init_oled() < 0) {
+        debug_printf("[MAIN] OLED init failed, continuing without it");
+    }
+
     debug_printf("[MAIN] Initializing TX engine");
     tx_engine_init();
 
@@ -170,13 +196,14 @@ int main(void) {
 
     debug_printf("[MAIN] Init complete, entering main loop");
 
+    cfb_print(oled_dev, "Hello Zephyr!", 0, 0);
+
     while (1) {
         gpio_pin_toggle_dt(&led1);
         gpio_pin_toggle_dt(&led2);
         gpio_pin_toggle_dt(&led3);
         gpio_pin_toggle_dt(&led4);
 
-        // read and report SI5351A status
         si5351a_update_status(si5351a);
         struct si5351a_data *clk_data = (struct si5351a_data *)si5351a->data;
         debug_printf("[CLK] SYS_INIT=%u LOL_A=%u LOL_B=%u LOS=%u REV=%u",
@@ -185,13 +212,7 @@ int main(void) {
                      clk_data->dev_status.LOL_B,
                      clk_data->dev_status.LOS,
                      clk_data->dev_status.REVID);
-        debug_printf("[CLK] PLLA=%llu PLLB=%llu clk0=%llu clk1=%llu clk2=%llu",
-                     clk_data->plla_freq,
-                     clk_data->pllb_freq,
-                     clk_data->output_freq[0],
-                     clk_data->output_freq[1],
-                     clk_data->output_freq[2]);
-
+        
         k_sleep(K_SECONDS(1));
     }
 

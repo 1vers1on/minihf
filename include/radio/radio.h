@@ -2,8 +2,10 @@
 #define RADIO_RADIO_H
 
 #include <stdint.h>
+#include <stdbool.h>
 
 extern uint64_t base_frequency;
+extern bool tx_active;
 
 #define BAND_30M_MIN_FREQ  (10100000ULL * 100)
 #define BAND_30M_MAX_FREQ  (10150000ULL * 100)

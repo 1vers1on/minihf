@@ -37,6 +37,18 @@
 		};
 	};
 
+	tr_switch {
+		compatible = "gpio-leds";
+		tr_forward: tr_forward {
+			gpios = <&gpioa 1 GPIO_ACTIVE_HIGH>;
+			label = "TR Forward Relay";
+		};
+		tr_backward: tr_backward {
+			gpios = <&gpioa 2 GPIO_ACTIVE_HIGH>;
+			label = "TR Backward Relay";
+		};
+	};
+
 	pps0: pps {
         compatible = "pps-gpio";
         gpios = <&gpioa 0 GPIO_ACTIVE_HIGH>;
@@ -113,6 +125,20 @@
         regulator-min-microvolt = <5000000>;
         regulator-max-microvolt = <18000000>;
 	};
+
+	ssd1306: ssd1306@3c {
+        compatible = "solomon,ssd1306fb";
+        reg = <0x3c>;
+        width = <128>;
+        height = <64>;
+        segment-offset = <0>;
+        page-offset = <0>;
+        display-offset = <0>;
+        multiplex-ratio = <63>;
+        segment-remap;
+        com-invdir;
+        prechargep = <0x22>;
+    };
 };
 
 &spi1 {

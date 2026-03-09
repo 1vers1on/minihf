@@ -6,6 +6,7 @@
 #include "protocol/payload_utils.h"
 #include "config.h"
 #include "zephyr/drivers/regulator.h"
+#include "hardware/tr_switch.h"
 
 #include <zephyr/sys/reboot.h>
 #include <zephyr/drivers/rtc.h>
@@ -173,10 +174,37 @@ void handle_reset(const uint8_t *payload, uint8_t length, uint16_t id) {
     sys_reboot(SYS_REBOOT_COLD);
 }
 
+void handle_tr_switch(const uint8_t *payload, uint8_t length, uint16_t id) {
+    payload_cursor_t cursor;
+    cursor_init(&cursor, payload, length);
+
+    if (cursor.remaining < 1) {
+        send_nack(id);
+        return;
+    }
+
+    uint8_t mode = cursor_get_u8(&cursor);
+    if (mode == 0) {
+        tr_set_rx();
+    } else if (mode == 1) {
+        tr_set_tx();
+    } else {
+        send_nack(id);
+        return;
+    }
+
+    send_ack(id);
+}
+
 static tx_symbol_t test_signal_symbol;
 static tx_sequence_t test_signal_seq;
 
 void handle_tx_test_signal(const uint8_t *payload, uint8_t length, uint16_t id) {
+    if (!tx_active) {
+        send_debug_message("Cannot start test signal: TX engine is not active");
+        send_nack(id);
+        return;
+    }
     payload_cursor_t cursor;
     cursor_init(&cursor, payload, length);
 
