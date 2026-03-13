@@ -3,56 +3,63 @@
 #include <st/l4/stm32l431c(b-c)ux-pinctrl.dtsi>
 
 / {
-	model = "EllieRF MiniHF";
-	compatible = "ellierf,minihf", "st,stm32l431xb";
+    model = "EllieRF MiniHF";
+    compatible = "ellierf,minihf", "st,stm32l431xb";
 
-	chosen {
-		zephyr,console = &lpuart1;
-		zephyr,shell-uart = &lpuart1;
-		zephyr,sram = &sram0;
-		zephyr,flash = &flash0;
-	};
+    chosen {
+        zephyr,console = &lpuart1;
+        zephyr,shell-uart = &lpuart1;
+        zephyr,sram = &sram0;
+        zephyr,flash = &flash0;
+        /* Optional: add a zephyr,display chosen node if you are using a generic display driver */
+        /* zephyr,display = &sh1106; */
+    };
 
-	leds {
-		compatible = "gpio-leds";
+    leds {
+        compatible = "gpio-leds";
 
-		led1: led_1 {
-			gpios = <&gpioa 12 GPIO_ACTIVE_HIGH>;
-			label = "LED 1";
-		};
+        led1: led_1 {
+            gpios = <&gpioa 12 GPIO_ACTIVE_HIGH>;
+            label = "LED 1";
+        };
 
-		led2: led_2 {
-			gpios = <&gpioa 11 GPIO_ACTIVE_HIGH>;
-			label = "LED 2";
-		};
+        led2: led_2 {
+            gpios = <&gpioa 11 GPIO_ACTIVE_HIGH>;
+            label = "LED 2";
+        };
 
-		led3: led_3 {
-			gpios = <&gpioa 10 GPIO_ACTIVE_HIGH>;
-			label = "LED 3";
-		};
+        led3: led_3 {
+            gpios = <&gpioa 10 GPIO_ACTIVE_HIGH>;
+            label = "LED 3";
+        };
 
-		led4: led_4 {
-			gpios = <&gpioa 9 GPIO_ACTIVE_HIGH>;
-			label = "LED 4";
-		};
-	};
+        led4: led_4 {
+            gpios = <&gpioa 9 GPIO_ACTIVE_HIGH>;
+            label = "LED 4";
+        };
+    };
 
-	tr_switch {
-		compatible = "gpio-leds";
-		tr_forward: tr_forward {
-			gpios = <&gpioa 1 GPIO_ACTIVE_HIGH>;
-			label = "TR Forward Relay";
-		};
-		tr_backward: tr_backward {
-			gpios = <&gpioa 2 GPIO_ACTIVE_HIGH>;
-			label = "TR Backward Relay";
-		};
-	};
+    tr_switch {
+        compatible = "gpio-leds";
+        tr_forward: tr_forward {
+            gpios = <&gpioa 1 GPIO_ACTIVE_HIGH>;
+            label = "TR Forward Relay";
+        };
+        tr_backward: tr_backward {
+            gpios = <&gpioa 2 GPIO_ACTIVE_HIGH>;
+            label = "TR Backward Relay";
+        };
+    };
 
-	pps0: pps {
+    pps0: pps {
         compatible = "pps-gpio";
         gpios = <&gpioa 0 GPIO_ACTIVE_HIGH>;
         label = "GPS_PPS";
+    };
+
+    zephyr,user {
+        io-channels = <&adc1 11>, <&adc1 12>;
+        io-channel-names = "pa6", "pa7";
     };
 };
 
@@ -61,7 +68,7 @@
 };
 
 &clk_lsi {
-	status = "disabled"; 
+    status = "disabled"; 
 };
 
 &clk_hse {
@@ -84,73 +91,77 @@
 };
 
 &rcc {
-	clocks = <&pll>;
-	clock-frequency = <DT_FREQ_M(80)>;
-	ahb-prescaler = <1>;
-	apb1-prescaler = <1>;
-	apb2-prescaler = <1>;
+    clocks = <&pll>;
+    clock-frequency = <DT_FREQ_M(80)>;
+    ahb-prescaler = <1>;
+    apb1-prescaler = <1>;
+    apb2-prescaler = <1>;
 };
 
 &lpuart1 {
-	pinctrl-0 = <&lpuart1_tx_pb11 &lpuart1_rx_pb10>;
-	pinctrl-names = "default";
-	current-speed = <115200>;
-	status = "okay";
+    pinctrl-0 = <&lpuart1_tx_pb11 &lpuart1_rx_pb10>;
+    pinctrl-names = "default";
+    current-speed = <115200>;
+    status = "okay";
 };
 
 &i2c1 {
-	pinctrl-0 = <&i2c1_scl_pb6 &i2c1_sda_pb7>;
-	pinctrl-names = "default";
-	clock-frequency = <I2C_BITRATE_FAST>;
-	status = "okay";
+    pinctrl-0 = <&i2c1_scl_pb6 &i2c1_sda_pb7>;
+    pinctrl-names = "default";
+    clock-frequency = <I2C_BITRATE_FAST>;
+    status = "okay";
 
-	si5351a: si5351a@60 {
-		compatible = "silabs,si5351a";
-		reg = <0x60>;
-		clock-frequency = <25000000>;
-		crystal-load-capacitance = <10>;
-		status = "okay";
-	};
+    si5351a: si5351a@60 {
+        compatible = "silabs,si5351a";
+        reg = <0x60>;
+        clock-frequency = <25000000>;
+        crystal-load-capacitance = <10>;
+        status = "okay";
+    };
 
-	tps55289: tps55289@75 {
-		compatible = "ti,tps55289";
-		reg = <0x75>;
-		status = "okay";
+    tps55289: tps55289@75 {
+        compatible = "ti,tps55289";
+        reg = <0x75>;
+        status = "okay";
 
-		ti,external-feedback;
+        ti,external-feedback;
         ti,feedback-resistors-ohms = <274000 100000>;
         ti,rsense-mohm = <0>;
 
-		regulator-name = "V_PA";
+        regulator-name = "V_PA";
         regulator-min-microvolt = <5000000>;
         regulator-max-microvolt = <18000000>;
-	};
+    };
 
-	ssd1306: ssd1306@3c {
-        compatible = "solomon,ssd1306";
+    sh1106: sh1106@3c {
+        compatible = "sinowealth,sh1106";
         reg = <0x3c>;
         width = <128>;
         height = <64>;
-        segment-offset = <0>;
+        segment-offset = <2>;
         page-offset = <0>;
         display-offset = <0>;
         multiplex-ratio = <63>;
         segment-remap;
         com-invdir;
-        prechargep = <0xF1>;
+        prechargep = <0x22>;
     };
 };
 
 &spi1 {
-	pinctrl-0 = <&spi1_nss_pb0 &spi1_sck_pb3
-		     &spi1_miso_pb4 &spi1_mosi_pb5>;
-	pinctrl-names = "default";
-	status = "okay";
+    pinctrl-0 = <&spi1_nss_pb0 &spi1_sck_pb3
+             &spi1_miso_pb4 &spi1_mosi_pb5>;
+    pinctrl-names = "default";
+    status = "okay";
 };
 
 &rtc {
     clocks = <&rcc STM32_CLOCK(APB1, 28)>,
              <&rcc STM32_SRC_LSE RTC_SEL(1)>;
+    status = "okay";
+};
+
+&dma1 {
     status = "okay";
 };
 
@@ -164,7 +175,10 @@
     #address-cells = <1>;
     #size-cells = <0>;
 
-    channel@b {
+    dmas = <&dma1 1 0 0x440>; /* DMA1, Channel 1, Slot 0, Config (Priority/Direction) */
+    dma-names = "dmach";
+
+    adc_pa6: channel@b {
         reg = <11>;
         zephyr,gain = "ADC_GAIN_1";
         zephyr,reference = "ADC_REF_INTERNAL";
@@ -172,7 +186,7 @@
         zephyr,resolution = <12>;
     };
 
-    channel@c {
+    adc_pa7: channel@c {
         reg = <12>;
         zephyr,gain = "ADC_GAIN_1";
         zephyr,reference = "ADC_REF_INTERNAL";

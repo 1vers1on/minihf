@@ -5,7 +5,7 @@
 #include <zephyr/kernel.h>
 #include <stdio.h>
 
-static const struct device *oled_dev = DEVICE_DT_GET(DT_NODELABEL(ssd1306));
+static const struct device *oled_dev = DEVICE_DT_GET(DT_NODELABEL(sh1106));
 static bool oled_initialized = false;
 char _oled_print_buf[128];
 
@@ -28,7 +28,9 @@ int init_oled(void) {
         debug_printf("[OLED] Failed to initialize framebuffer: %d", ret);
         return ret;
     }
-    cfb_framebuffer_clear(oled_dev, true);
+    oled_clear();
+    cfb_framebuffer_invert(oled_dev);
+    oled_flush();
     debug_printf("[OLED] Setting font");
     ret = cfb_framebuffer_set_font(oled_dev, FONT);
     if (ret != 0) {
@@ -41,7 +43,6 @@ int init_oled(void) {
         debug_printf("[OLED] Failed to turn on display: %d", ret);
         return ret;
     }
-    display_set_contrast(oled_dev, 255);
     oled_initialized = true;
     return 0;
 }
@@ -53,7 +54,7 @@ int oled_print(const char *str, uint16_t x, uint16_t y) {
 
 int oled_clear(void) {
     if (!oled_initialized) return -ENODEV;
-    return cfb_framebuffer_clear(oled_dev, true);
+    return cfb_framebuffer_clear(oled_dev, false);
 }
 
 int oled_flush(void) {

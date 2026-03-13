@@ -15,6 +15,8 @@
 #include <zephyr/drivers/display.h>
 #include <zephyr/display/cfb.h>
 #include "hardware/oled.h"
+#include "display/display.h"
+#include "radio/reciever.h"
 
 const struct device *regulator = DEVICE_DT_GET(DT_NODELABEL(tps55289));
 const struct device *si5351a = DEVICE_DT_GET(DT_NODELABEL(si5351a));
@@ -119,13 +121,19 @@ void enable_debug_in_pm() {
 }
 
 int main(void) {
-    k_busy_wait(2000000);
+    k_busy_wait(1000000);
 
     enable_debug_in_pm();
 
     uart_handler_init();
 
     debug_printf("=== minihf boot ===");
+
+    if (init_oled() < 0) {
+        debug_printf("[MAIN] OLED init failed, continuing without it");
+    }
+
+    display_manager_init();
 
     if (init_si5351a() < 0) {
         debug_printf("[MAIN] SI5351A init failed, aborting");
@@ -146,9 +154,7 @@ int main(void) {
         return -1;
     }
 
-    if (init_oled() < 0) {
-        debug_printf("[MAIN] OLED init failed, continuing without it");
-    }
+    receiver_init();
 
     debug_printf("[MAIN] Initializing TX engine");
     tx_engine_init();
@@ -165,6 +171,9 @@ int main(void) {
     gpio_pin_set_dt(&led4, 0);
 
     debug_printf("[MAIN] Init complete, entering main loop");
+
+    display_set_scene(DISPLAY_SCENE_SPECTRUM);
+    receiver_start();
 
     while (1) {
         gpio_pin_toggle_dt(&led1);

@@ -13,6 +13,8 @@ target_sources(app PRIVATE src/main.c
                            src/radio/tx_engine.c
                            src/hardware/tr_switch.c
                            src/hardware/oled.c
+                           src/display/display.c
+                           src/radio/reciever.c
                            )
 target_include_directories(app PRIVATE ${CMAKE_SOURCE_DIR})
 target_include_directories(app PRIVATE include)

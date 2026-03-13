@@ -349,6 +349,11 @@ impl MiniHF {
         Ok(())
     }
 
+    pub fn switch_display_scene(&self, scene_id: u8) -> Result<(), MiniHFError> {
+        self.transact(0x09, vec![scene_id])?;
+        Ok(())
+    }
+
     pub fn tx_test_signal(&self, duration_ms: u32) -> Result<(), MiniHFError> {
         if duration_ms == 0 {
             return Err(MiniHFError::InvalidArgument(

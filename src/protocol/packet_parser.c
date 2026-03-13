@@ -18,6 +18,7 @@ static const cmd_entry_t cmd_table[] = {
     {0x06, handle_get_buck_boost_regulator},
     {0x07, handle_tx_test_signal},
     {0x08, handle_tr_switch},
+    {0x09, handle_switch_display_scene},
     {0xFD, handle_reset},
 };
 

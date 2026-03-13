@@ -7,6 +7,7 @@
 #include "config.h"
 #include "zephyr/drivers/regulator.h"
 #include "hardware/tr_switch.h"
+#include "display/display.h"
 
 #include <zephyr/sys/reboot.h>
 #include <zephyr/drivers/rtc.h>
@@ -193,6 +194,20 @@ void handle_tr_switch(const uint8_t *payload, uint8_t length, uint16_t id) {
         return;
     }
 
+    send_ack(id);
+}
+
+void handle_switch_display_scene(const uint8_t *payload, uint8_t length, uint16_t id) {
+    payload_cursor_t cursor;
+    cursor_init(&cursor, payload, length);
+
+    if (cursor.remaining < 1) {
+        send_nack(id);
+        return;
+    }
+
+    uint8_t scene = cursor_get_u8(&cursor);
+    display_set_scene(scene);
     send_ack(id);
 }
 
