@@ -8,3 +8,8 @@ zephyr_modules.txt
 zephyr_settings.txt
 build_info.yml
 Kconfig/
+.west
+zephyr
+modules
+tools
+bootloader
